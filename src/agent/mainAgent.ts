@@ -14,6 +14,7 @@ import {
   setCachedPortfolio,
   deleteCachedPortfolio,
 } from "../services/redisService.js";
+import { sendWhatsAppNotification } from "../services/notificationService.js";
 
 // Helper function to detect portfolio-related requests
 function isPortfolioRequest(message: string): boolean {
@@ -314,6 +315,13 @@ async function fetch_and_analyze_portfolio(
     console.error(`❌ User not found during portfolio fetch: ${state.userId}`);
     throw new Error("User not found");
   }
+
+  // Send immediate notification to user that portfolio fetching has started
+  await sendWhatsAppNotification(
+    user.whatsappNumber,
+    "🔄 Fetching your portfolio data from Binance and blockchain wallets... This may take a few moments."
+  );
+
   console.log(`🔐 Decrypting API credentials for Binance`);
   const apiKey = decrypt(user.encryptedApiKey);
   const apiSecret = decrypt(user.encryptedApiSecret);
