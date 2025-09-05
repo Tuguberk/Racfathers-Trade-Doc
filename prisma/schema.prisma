@@ -1,0 +1,48 @@
+// 1. Enable the vector extension in your PostgreSQL instance first.
+// CREATE EXTENSION IF NOT EXISTS vector;
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  whatsappNumber     String              @unique
+  encryptedApiKey    String
+  encryptedApiSecret String
+  createdAt          DateTime            @default(now())
+  messages           ChatMessage[]
+  portfolioSnapshots PortfolioSnapshot[]
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  content   String
+  sender    String   // "USER" or "AGENT"
+  timestamp DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model PortfolioSnapshot {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  data      Json     // JSON blob of portfolio data from CCXT
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model KnowledgeArticle {
+  id        String    @id @default(cuid())
+  content   String
+  author    String?
+  source    String?
+  tags      String[]
+  embedding Unsupported("vector(1536)")?
+}
+
