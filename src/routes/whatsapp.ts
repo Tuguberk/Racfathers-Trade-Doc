@@ -7,6 +7,60 @@ import twilio from "twilio";
 
 const router = Router();
 
+// Helper function to intelligently split long messages
+function splitLongMessage(message: string, maxLength: number = 1200): string[] {
+  if (message.length <= maxLength) {
+    return [message];
+  }
+
+  const parts: string[] = [];
+  let currentPart = "";
+
+  // Split by paragraphs first
+  const paragraphs = message.split(/\n\n+/);
+
+  for (const paragraph of paragraphs) {
+    // If adding this paragraph exceeds limit, save current part and start new one
+    if (currentPart.length + paragraph.length + 2 > maxLength) {
+      if (currentPart.trim()) {
+        parts.push(currentPart.trim());
+        currentPart = "";
+      }
+
+      // If single paragraph is too long, split by sentences
+      if (paragraph.length > maxLength) {
+        const sentences = paragraph.split(/(?<=[.!?])\s+/);
+        let sentencePart = "";
+
+        for (const sentence of sentences) {
+          if (sentencePart.length + sentence.length + 1 > maxLength) {
+            if (sentencePart.trim()) {
+              parts.push(sentencePart.trim());
+            }
+            sentencePart = sentence;
+          } else {
+            sentencePart += (sentencePart ? " " : "") + sentence;
+          }
+        }
+
+        if (sentencePart.trim()) {
+          currentPart = sentencePart;
+        }
+      } else {
+        currentPart = paragraph;
+      }
+    } else {
+      currentPart += (currentPart ? "\n\n" : "") + paragraph;
+    }
+  }
+
+  if (currentPart.trim()) {
+    parts.push(currentPart.trim());
+  }
+
+  return parts.length > 0 ? parts : [message.substring(0, maxLength) + "..."];
+}
+
 router.post("/api/whatsapp/webhook", async (req, res) => {
   const from = String((req.body as any)?.From || ""); // e.g., 'whatsapp:+15551234567'
   const body = String((req.body as any)?.Body || "").trim();
@@ -66,20 +120,48 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     console.log(
       `✅ Agent processing complete. Response length: ${reply.length} chars`
     );
+    console.log(`📝 Raw response content: ${reply.substring(0, 150)}...`);
 
     // Split response into multiple messages if it contains separator
-    const responses = reply.split("\n\n---\n\n");
-    console.log(`📤 Sending ${responses.length} message(s) to user`);
+    let responses = reply
+      .split("\n\n---\n\n")
+      .filter((r) => r && r.trim().length > 0);
+
+    // If no separator was used, treat as single message
+    if (responses.length === 0) {
+      responses = [reply.trim()];
+    }
+
+    // Further split any messages that are still too long
+    const finalResponses: string[] = [];
+    for (const response of responses) {
+      const splitParts = splitLongMessage(response.trim(), 1200);
+      finalResponses.push(...splitParts);
+    }
+
+    console.log(`📤 Final message split: ${finalResponses.length} part(s)`);
+
+    // Ensure we have at least one response
+    if (finalResponses.length === 0) {
+      console.log(`⚠️ No valid responses after processing, using fallback`);
+      finalResponses.push("I'm here to help. How are you feeling? 💙");
+    }
 
     // Send each response as a separate WhatsApp message
-    for (let i = 0; i < responses.length; i++) {
-      const message = responses[i].trim();
-      if (message) {
-        twiml.message(message);
+    for (let i = 0; i < finalResponses.length; i++) {
+      const message = finalResponses[i].trim();
+      if (message && message.length > 0) {
+        // Final safety check - hard limit at 1500 chars
+        const safeMessage =
+          message.length > 1500
+            ? message.substring(0, 1480) + "... (cont'd)"
+            : message;
+
+        twiml.message(safeMessage);
         console.log(
-          `📤 Message ${i + 1}/${
-            responses.length
-          } prepared: ${message.substring(0, 50)}...`
+          `📤 Message ${i + 1}/${finalResponses.length} prepared (${
+            safeMessage.length
+          } chars): ${safeMessage.substring(0, 80)}...`
         );
       }
     }

@@ -40,7 +40,9 @@ app.use(promptsRouter);
 app.use(knowledgeRouter);
 app.use(visualizerRouter);
 
-console.log(`🛣️  Routes registered: dashboard, onboarding, whatsapp, prompts, knowledge, visualizer`);
+console.log(
+  `🛣️  Routes registered: dashboard, onboarding, whatsapp, prompts, knowledge, visualizer`
+);
 
 app.listen(config.port, () => {
   // eslint-disable-next-line no-console

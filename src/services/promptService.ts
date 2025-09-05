@@ -150,23 +150,102 @@ export class PromptService {
   }
 
   /**
+   * System prompts that should be hard-coded (output format, behavior rules)
+   */
+  private static getSystemPrompt(promptName: string): string {
+    const systemPrompts: Record<string, string> = {
+      system_base: `You are Psy-Trader, a professional trading psychology coach. Your responses should be:
+- Empathetic and supportive
+- Practical and actionable
+- Based on established trading psychology principles
+- Never provide financial advice, only psychological guidance
+- Keep responses concise but meaningful
+- Use emojis appropriately to enhance emotional connection`,
+
+      system_output_format: `RESPONSE FORMAT RULES:
+- CRITICAL: Keep each message under 1200 characters for WhatsApp compatibility
+- Use clear, concise language
+- Break long responses into multiple parts using "\\n\\n---\\n\\n" separator
+- Include relevant emojis for emotional connection
+- Use bullet points for lists to save space
+- Prioritize the most important information first
+- Always end with a supportive question or statement`,
+
+      system_portfolio_format: `PORTFOLIO RESPONSE FORMAT:
+- First message: Portfolio table (max 1200 chars)
+- Second message: Key insights and advice (max 1200 chars) 
+- Use concise formatting: Asset: Amount ($Value - %)
+- Focus on top 5-7 holdings only
+- Include percentages and dollar amounts
+- Emphasize psychological implications briefly`,
+    };
+
+    return systemPrompts[promptName] || "";
+  }
+
+  /**
    * Fallback prompts when database prompts are not available
    */
   private static getFallbackPrompt(
     promptName: string,
     variables: PromptVariables
   ): string {
+    // First check for system prompts
+    const systemPrompt = this.getSystemPrompt(promptName);
+    if (systemPrompt) {
+      return systemPrompt;
+    }
+
     const fallbacks: Record<string, string> = {
-      portfolio_quote: `"Stay focused on your long-term goals, not short-term market noise."`,
-      emotional_support: `I understand you're going through some difficult emotions right now. These feelings are completely normal in trading. Take a deep breath, step back from the charts, and remember that your mental health is more important than any trade. Consider taking a short break to clear your mind.`,
-      general_response: `I hear you. Remember that successful trading is as much about psychology as it is about strategy. Stay disciplined and trust your process.`,
-      psychology_analysis: `{"emotion": "neutral", "confidence": 5, "urgency": 5, "needs_support": false}`,
-      knowledge_search: `trading psychology and emotional management advice`,
+      psychology_analysis: `Analyze the user's psychological state from their message: "{message}"
+
+Recent chat context: {chatHistory}
+Is emotional message: {isEmotional}
+
+Provide a brief psychological assessment focusing on:
+- Emotional state (fear, greed, confidence, etc.)
+- Risk tolerance indicators
+- Need for support or intervention
+- Market psychology patterns
+
+Keep it concise and focused.`,
+
+      portfolio_analysis: `${this.getSystemPrompt("system_base")}
+${this.getSystemPrompt("system_portfolio_format")}
+
+IMPORTANT: Keep response under 1200 characters. Be concise but supportive.
+
+PORTFOLIO ANALYSIS:
+{portfolioSummary}
+
+PSYCHOLOGICAL STATE:
+{psychAnalysis}
+
+RELEVANT KNOWLEDGE:
+{knowledge}
+
+Provide supportive analysis of their portfolio from a psychological perspective. Focus on the most important psychological insights. Address emotional concerns with practical, brief guidance.`,
+
+      emotional_support: `${this.getSystemPrompt("system_base")}
+${this.getSystemPrompt("system_output_format")}
+
+IMPORTANT: Keep response under 1200 characters total. Be concise but empathetic.
+
+USER MESSAGE: {inputMessage}
+
+PSYCHOLOGICAL ANALYSIS: {psychAnalysis}
+
+RELEVANT KNOWLEDGE: {knowledge}
+
+Provide empathetic support focusing on their emotional state. Offer the most crucial coping strategies and psychological guidance. Be brief but meaningful.`,
     };
 
     const fallback =
       fallbacks[promptName] ||
-      `I'm here to help you with trading psychology. How are you feeling about your current situation?`;
+      `${this.getSystemPrompt("system_base")}
+
+I'm here to help you with trading psychology. How are you feeling about your current situation?`;
+
     console.log(`🔄 Using fallback prompt for: ${promptName}`);
     return fallback;
   }

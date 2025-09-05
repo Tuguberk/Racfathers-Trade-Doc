@@ -76,17 +76,24 @@ function formatPortfolioTable(portfolioData: any): string {
   }
 
   const { totalUSDT, topHoldings } = portfolioData.summary;
-  let table = `📊 *Portfolio Summary*\n\n`;
-  table += `💰 *Total Value:* $${totalUSDT.toLocaleString()}\n\n`;
-  table += `🏆 *Top Assets:*\n`;
+  let table = `📊 *Portfolio Summary*\n`;
+  table += `💰 Total: $${totalUSDT.toLocaleString()}\n\n`;
 
-  topHoldings.forEach((holding: any, index: number) => {
+  // Limit to top 6 holdings for space
+  const displayHoldings = topHoldings.slice(0, 6);
+
+  displayHoldings.forEach((holding: any, index: number) => {
     const percentage =
       totalUSDT > 0 ? ((holding.estUSDT / totalUSDT) * 100).toFixed(1) : "0.0";
-    table += `${index + 1}. ${holding.asset}: ${holding.amount.toFixed(
-      4
-    )} ($${holding.estUSDT.toFixed(2)} - ${percentage}%)\n`;
+    // More compact format
+    table += `${index + 1}. ${holding.asset}: $${holding.estUSDT.toFixed(
+      0
+    )} (${percentage}%)\n`;
   });
+
+  if (topHoldings.length > 6) {
+    table += `\n...and ${topHoldings.length - 6} more assets`;
+  }
 
   return table;
 }
@@ -200,8 +207,8 @@ async function analyze_message_intent(
 
   // Analyze user's psychological state with context
   const psychPrompt = await PromptService.getPrompt("psychology_analysis", {
-    message: state.inputMessage,
-    chatHistory: JSON.stringify(state.chatHistory.slice(-3)),
+    inputMessage: state.inputMessage,
+    recentHistory: JSON.stringify(state.chatHistory.slice(-5)),
     isEmotional: isEmotionalReq.toString(),
   });
 
@@ -262,7 +269,7 @@ async function generate_final_response(
 
   // Handle portfolio requests specifically
   if (state.isPortfolioRequest && state.portfolioData) {
-    console.log(`� Generating portfolio-specific response`);
+    console.log(`📈 Generating portfolio-specific response`);
 
     // First message: Portfolio table
     const portfolioTable = formatPortfolioTable(state.portfolioData);
@@ -277,8 +284,14 @@ async function generate_final_response(
       knowledge: state.relevantKnowledge,
     });
 
-    const psychInsight = await getUtilityResponse(analysisPrompt);
-    responses.push(`💭 ${psychInsight}`);
+    console.log(`🔍 Portfolio analysis prompt prepared`);
+    const psychInsight = await getAdvancedAnalysis(analysisPrompt);
+
+    // Ensure the response is properly formatted
+    const formattedInsight = psychInsight.trim();
+    if (formattedInsight) {
+      responses.push(`💭 ${formattedInsight}`);
+    }
   } else {
     // Handle general trading psychology questions
     console.log(`🧠 Generating general psychology response`);
@@ -289,15 +302,32 @@ async function generate_final_response(
       knowledge: state.relevantKnowledge,
     });
 
-    const response = await getUtilityResponse(generalPrompt);
-    responses.push(response);
+    console.log(`🔍 General response prompt prepared`);
+    const response = await getAdvancedAnalysis(generalPrompt);
+
+    // Ensure the response is properly formatted
+    const formattedResponse = response.trim();
+    if (formattedResponse) {
+      responses.push(formattedResponse);
+    }
+  }
+
+  // Filter out empty responses
+  const validResponses = responses.filter((r) => r && r.trim().length > 0);
+
+  if (validResponses.length === 0) {
+    console.log(`⚠️ No valid responses generated, using fallback`);
+    validResponses.push(
+      "I'm here to support you through your trading journey. How are you feeling right now? 💙"
+    );
   }
 
   // Join multiple responses with a separator
-  const finalResponse = responses.join("\n\n---\n\n");
+  const finalResponse = validResponses.join("\n\n---\n\n");
 
-  console.log(`✅ Generated ${responses.length} response parts`);
+  console.log(`✅ Generated ${validResponses.length} response parts`);
   console.log(`💭 Total response length: ${finalResponse.length} characters`);
+  console.log(`📝 Response preview: ${finalResponse.substring(0, 100)}...`);
 
   return { finalResponse };
 }

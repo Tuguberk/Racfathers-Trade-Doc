@@ -16,9 +16,14 @@ async function openRouterChat(model: string, prompt: string): Promise<string> {
     body: JSON.stringify({
       model,
       messages: [
-        { role: "system", content: "You are a helpful assistant." },
+        {
+          role: "system",
+          content:
+            "You are Psy-Trader, a professional trading psychology coach. CRITICAL: Keep responses under 1200 characters for WhatsApp. Be concise but supportive.",
+        },
         { role: "user", content: prompt },
       ],
+      max_tokens: 300, // Limit tokens to control response length
     }),
   });
 
