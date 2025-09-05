@@ -413,26 +413,133 @@ router.get("/change-api/:token", async (req, res) => {
   }
 
   console.log(`✅ Valid API change token for: ${number}`);
+
+  // Get existing exchange keys for the user
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber: number },
+    include: {
+      exchangeKeys: {
+        where: { isActive: true },
+        orderBy: { createdAt: 'asc' }
+      }
+    }
+  });
+
+  const currentExchanges = user?.exchangeKeys || [];
+  console.log(`📊 Found ${currentExchanges.length} existing exchange keys for user`);
+
   res.send(
     page(`
-    <div style="text-align: center; margin-bottom: 20px;">
-      <h3 style="color: #1e293b; margin-bottom: 8px;">🔄 Update API Keys</h3>
-      <p style="color: #64748b; font-size: 14px;">Update your Binance API credentials</p>
+    <div style="text-align: center; margin-bottom: 30px;">
+      <h3 style="color: #1e293b; margin-bottom: 8px;">🔄 Update Exchange API Keys</h3>
+      <p style="color: #64748b; font-size: 14px;">Manage API keys from all your exchanges</p>
     </div>
+
+    ${currentExchanges.length > 0 ? `
+    <div style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+      <h4 style="margin: 0 0 16px 0; color: #374151;">📊 Current Exchange Connections:</h4>
+      ${currentExchanges.map(exchangeKey => `
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <div style="font-weight: 600; color: #374151; text-transform: capitalize;">
+              🏦 ${exchangeKey.exchange}
+            </div>
+            <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
+              Added: ${exchangeKey.createdAt.toLocaleDateString()}
+            </div>
+          </div>
+          <div style="color: #22c55e; font-size: 12px; font-weight: 500;">
+            ✅ Active
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
     
     <form method="POST">
-      <div class="form-group">
-        <label>🔑 New Binance API Key</label>
-        <input name="apiKey" required placeholder="Enter your new Binance API Key"/>
-      </div>
-      
-      <div class="form-group">
-        <label>🔐 New Binance Secret Key</label>
-        <input name="apiSecret" required placeholder="Enter your new Binance Secret Key"/>
+      <div class="exchange-section">
+        <h3><span class="exchange-icon">🏦</span>Exchange API Keys</h3>
+        <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
+          Add or update API keys from your exchanges. All keys are optional - add only the exchanges you use.
+          ${currentExchanges.length > 0 ? ' Adding new keys will replace your existing ones.' : ''}
+        </p>
+
+        <!-- Binance -->
+        <div class="exchange-group">
+          <div class="exchange-header">
+            <img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.png" alt="Binance" width="24" height="24">
+            <h4>Binance</h4>
+            <span class="exchange-badge">Spot & Futures</span>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="binance-apiKey" placeholder="Enter Binance API Key" />
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="binance-apiSecret" placeholder="Enter Binance Secret Key" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Bybit -->
+        <div class="exchange-group">
+          <div class="exchange-header">
+            <img src="https://cryptologos.cc/logos/bybit-logo.png" alt="Bybit" width="24" height="24">
+            <h4>Bybit</h4>
+            <span class="exchange-badge">Spot</span>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="bybit-apiKey" placeholder="Enter Bybit API Key" />
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="bybit-apiSecret" placeholder="Enter Bybit Secret Key" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Kraken -->
+        <div class="exchange-group">
+          <div class="exchange-header">
+            <img src="https://cryptologos.cc/logos/kraken-logo.png" alt="Kraken" width="24" height="24">
+            <h4>Kraken</h4>
+            <span class="exchange-badge">Spot</span>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="kraken-apiKey" placeholder="Enter Kraken API Key" />
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="kraken-apiSecret" placeholder="Enter Kraken Secret Key" />
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin-top: 20px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="font-size: 20px;">⚠️</span>
+            <strong style="color: #92400e;">API Key Security</strong>
+          </div>
+          <ul style="color: #92400e; font-size: 14px; margin: 0; padding-left: 20px;">
+            <li>Only enable <strong>Read</strong> permissions on your API keys</li>
+            <li>Never enable trading, withdrawal, or transfer permissions</li>
+            <li>All keys are encrypted and stored securely</li>
+            <li>Leave fields empty to remove exchange connections</li>
+          </ul>
+        </div>
       </div>
       
       <button type="submit" class="btn btn-submit">
-        🔄 Update API Keys
+        🔄 Update Exchange API Keys
       </button>
     </form>
     
@@ -1028,72 +1135,105 @@ router.post("/change-api/:token", async (req, res) => {
     );
   }
 
-  const apiKey = String((req.body as any)?.apiKey || "");
-  const apiSecret = String((req.body as any)?.apiSecret || "");
-  const exchange = String((req.body as any)?.exchange || "binance");
-  if (!apiKey || !apiSecret) {
-    console.log(`⚠️  Incomplete API credentials for API change: ${number}`);
+  console.log(`🏦 Processing multi-exchange API keys update for: ${number}`);
+
+  // Get user
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber: number },
+  });
+  if (!user) {
+    return res.status(404).send(
+      page(
+        `<div style="text-align: center; padding: 40px 20px;">User not found.</div>`
+      )
+    );
+  }
+
+  // Deactivate all existing exchange keys first
+  await prisma.exchangeApiKey.updateMany({
+    where: { userId: user.id },
+    data: { isActive: false }
+  });
+
+  // Process exchange API keys
+  const exchanges = ['binance', 'bybit', 'kraken'];
+  const updatedExchanges = [];
+  let hasValidKeys = false;
+
+  for (const exchange of exchanges) {
+    const apiKey = String((req.body as any)?.[`${exchange}-apiKey`] || "").trim();
+    const apiSecret = String((req.body as any)?.[`${exchange}-apiSecret`] || "").trim();
+    
+    if (apiKey && apiSecret) {
+      console.log(`🔐 Processing ${exchange} API keys for user: ${number}`);
+      
+      try {
+        const encryptedApiKey = encrypt(apiKey);
+        const encryptedApiSecret = encrypt(apiSecret);
+
+        await prisma.exchangeApiKey.upsert({
+          where: { 
+            userId_exchange: { 
+              userId: user.id, 
+              exchange: exchange 
+            } 
+          },
+          create: {
+            userId: user.id,
+            exchange: exchange,
+            encryptedApiKey,
+            encryptedApiSecret,
+            isActive: true,
+          },
+          update: {
+            encryptedApiKey,
+            encryptedApiSecret,
+            isActive: true,
+          },
+        });
+
+        updatedExchanges.push(exchange);
+        hasValidKeys = true;
+        console.log(`✅ ${exchange} API keys updated successfully`);
+      } catch (error: any) {
+        console.error(`❌ Failed to update ${exchange} API keys:`, error.message);
+      }
+    } else {
+      console.log(`⚠️ Skipping ${exchange} - no API keys provided`);
+    }
+  }
+
+  if (!hasValidKeys) {
+    console.log(`⚠️ No valid API keys provided for user: ${number}`);
     return res.status(400).send(
       page(`
       <div style="text-align: center; padding: 40px 20px;">
         <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
-        <h3 style="color: #ef4444; margin-bottom: 12px;">Incomplete Information</h3>
-        <p style="color: #64748b; margin-bottom: 24px;">Both Binance API Key and Secret Key are required.</p>
+        <h3 style="color: #ef4444; margin-bottom: 12px;">No API Keys Provided</h3>
+        <p style="color: #64748b; margin-bottom: 24px;">Please provide at least one complete set of exchange API credentials.</p>
+        <button onclick="history.back()" class="btn btn-primary">Go Back</button>
       </div>
     `)
     );
   }
-
-  console.log(`🔐 Updating API credentials for: ${number} (${exchange})`);
-  const encryptedApiKey = encrypt(apiKey);
-  const encryptedApiSecret = encrypt(apiSecret);
-
-  // Upsert into ExchangeApiKey for the selected exchange
-  const userForUpdate = await prisma.user.findUnique({
-    where: { whatsappNumber: number },
-  });
-  if (!userForUpdate) {
-    return res
-      .status(404)
-      .send(
-        page(
-          `<div style="text-align: center; padding: 40px 20px;">User not found.</div>`
-        )
-      );
-  }
-
-  await prisma.exchangeApiKey.upsert({
-    where: { userId_exchange: { userId: userForUpdate.id, exchange } },
-    create: {
-      userId: userForUpdate.id,
-      exchange,
-      encryptedApiKey,
-      encryptedApiSecret,
-      isActive: true,
-    },
-    update: {
-      encryptedApiKey,
-      encryptedApiSecret,
-      isActive: true,
-    },
-  });
 
   await delToken(`change-api:${token}`);
   console.log(`🧹 API change token cleaned up: ${token}`);
 
   // Send WhatsApp confirmation
   try {
-    if (
-      config.twilio.accountSid &&
-      config.twilio.authToken &&
-      config.twilio.from
-    ) {
+    if (config.twilio.accountSid && config.twilio.authToken && config.twilio.from) {
       console.log(`📱 Sending API update confirmation to: ${number}`);
       const client = twilio(config.twilio.accountSid, config.twilio.authToken);
+      
+      const exchangeList = updatedExchanges.map(ex => 
+        ex.charAt(0).toUpperCase() + ex.slice(1)
+      ).join(', ');
+      
       await client.messages.create({
         from: config.twilio.from,
         to: number,
-        body: "🔄 Your exchange API keys have been updated successfully!",
+        body: `🔄 Your API keys have been updated successfully!\n\n🏦 Updated exchanges: ${exchangeList}\n\n💡 Type "fetch my assets" to see your portfolio.`,
       });
       console.log(`✅ API update confirmation sent successfully`);
     }
@@ -1101,19 +1241,30 @@ router.post("/change-api/:token", async (req, res) => {
     console.error(`❌ Failed to send API update confirmation:`, e.message);
   }
 
-  console.log(`🎉 API keys updated successfully for: ${number}`);
+  console.log(`🎉 Multi-exchange API keys updated successfully for: ${number}`);
+  console.log(`📊 Updated exchanges: ${updatedExchanges.join(', ')}`);
+  
   res.send(
     page(`
     <div style="text-align: center; padding: 40px 20px;">
       <div style="font-size: 64px; margin-bottom: 24px;">🎉</div>
       <h3 style="color: #10b981; margin-bottom: 16px;">API Keys Updated!</h3>
-  <p style="color: #64748b; margin-bottom: 24px;">Your exchange API credentials have been updated and encrypted securely.</p>
+      <p style="color: #64748b; margin-bottom: 24px;">Your exchange API credentials have been updated and encrypted securely.</p>
+      
       <div style="background: #ecfdf5; border: 1px solid #d1fae5; border-radius: 12px; padding: 24px; margin: 24px 0;">
-        <div style="font-size: 24px; margin-bottom: 12px;">✅</div>
-        <p style="color: #065f46; font-weight: 600; margin: 0;">New API keys active</p>
+        <div style="font-size: 24px; margin-bottom: 12px;">🏦</div>
+        <p style="color: #065f46; font-weight: 600; margin: 0 0 8px 0;">Updated Exchanges:</p>
+        <p style="color: #059669; margin: 0;">${updatedExchanges.map(ex => 
+          ex.charAt(0).toUpperCase() + ex.slice(1)
+        ).join(', ')}</p>
       </div>
-      <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1;">
-        💬 <strong>Next:</strong> Return to WhatsApp to continue trading
+      
+      <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1; margin-bottom: 20px;">
+        💬 <strong>Next:</strong> Return to WhatsApp and type "fetch my assets" to see your updated portfolio
+      </div>
+      
+      <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; color: #92400e;">
+        <strong>🔐 Security Reminder:</strong> Your API keys are encrypted and stored securely. Only read permissions should be enabled on your exchange accounts.
       </div>
     </div>
   `)
