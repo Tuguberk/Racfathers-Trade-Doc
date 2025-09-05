@@ -18,6 +18,18 @@ model User {
   createdAt          DateTime            @default(now())
   messages           ChatMessage[]
   portfolioSnapshots PortfolioSnapshot[]
+  walletAddresses    WalletAddress[]
+}
+
+model WalletAddress {
+  id        String   @id @default(cuid())
+  address   String
+  label     String? // Optional label for the wallet
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address]) // Prevent duplicate addresses for same user
 }
 
 model ChatMessage {
