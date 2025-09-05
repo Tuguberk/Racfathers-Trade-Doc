@@ -381,7 +381,18 @@ async function analyze_message_intent(
   console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
   console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
 
-  // Analyze user's psychological state with context
+  // Skip psychological analysis for portfolio requests
+  if (isPortfolioReq) {
+    console.log(`📊 Skipping psychological analysis for portfolio request`);
+    return {
+      psychologicalAnalysis: "", // Empty for portfolio requests
+      isPortfolioRequest: isPortfolioReq,
+      isEmotionalMessage: isEmotionalReq,
+      relevantKnowledge: "", // Skip knowledge base for portfolio requests
+    };
+  }
+
+  // Analyze user's psychological state with context for non-portfolio requests
   const psychPrompt = await PromptService.getPrompt("psychology_analysis", {
     inputMessage: state.inputMessage,
     recentHistory: JSON.stringify(state.chatHistory.slice(-5)),
@@ -521,6 +532,15 @@ function shouldFetchPortfolioCondition(state: AgentState): string {
   return "analyze_message_intent";
 }
 
+// Conditional function to decide whether to search knowledge base
+function shouldSearchKnowledgeCondition(state: AgentState): string {
+  if (state.isPortfolioRequest) {
+    console.log(`📊 Portfolio request: skipping knowledge base search`);
+    return "generate_final_response";
+  }
+  return "search_knowledge_base";
+}
+
 const graph = new StateGraph<AgentState>({
   channels: {
     userId: null,
@@ -553,7 +573,14 @@ const graph = new StateGraph<AgentState>({
     }
   )
   .addEdge("fetch_and_analyze_portfolio", "analyze_message_intent")
-  .addEdge("analyze_message_intent", "search_knowledge_base")
+  .addConditionalEdges(
+    "analyze_message_intent",
+    shouldSearchKnowledgeCondition,
+    {
+      search_knowledge_base: "search_knowledge_base",
+      generate_final_response: "generate_final_response",
+    }
+  )
   .addEdge("search_knowledge_base", "generate_final_response")
   .addEdge("generate_final_response", "__end__");
 
