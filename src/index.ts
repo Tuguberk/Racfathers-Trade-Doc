@@ -1,10 +1,12 @@
 import express from "express";
 import bodyParser from "body-parser";
 import { config } from "./config.js";
+import dashboardRouter from "./routes/dashboard.js";
 import onboardingRouter from "./routes/onboarding.js";
 import whatsappRouter from "./routes/whatsapp.js";
 import promptsRouter from "./routes/prompts.js";
 import knowledgeRouter from "./routes/knowledge.js";
+import visualizerRouter from "./routes/visualizer.js";
 import { prisma } from "./db/prisma.js";
 
 const app = express();
@@ -31,19 +33,23 @@ app.get("/health", async (req, res) => {
   }
 });
 
+app.use(dashboardRouter);
 app.use(onboardingRouter);
 app.use(whatsappRouter);
 app.use(promptsRouter);
 app.use(knowledgeRouter);
+app.use(visualizerRouter);
 
-console.log(`🛣️  Routes registered: onboarding, whatsapp, prompts, knowledge`);
+console.log(`🛣️  Routes registered: dashboard, onboarding, whatsapp, prompts, knowledge, visualizer`);
 
 app.listen(config.port, () => {
   // eslint-disable-next-line no-console
   console.log(`🎉 Psy-Trader server is ready and listening on :${config.port}`);
+  console.log(`🏠 Dashboard homepage: http://localhost:${config.port}`);
   console.log(`📱 WhatsApp webhook endpoint: /api/whatsapp/webhook`);
   console.log(`👋 Onboarding endpoint: /onboard/:token`);
   console.log(`🧠 Agent prompts management: /prompts`);
-  console.log(`� Knowledge base management: /knowledge`);
+  console.log(`📚 Knowledge base management: /knowledge`);
+  console.log(`� Agent Graph Visualizer: /graph-visualizer`);
   console.log(`�💊 Health check endpoint: /health`);
 });

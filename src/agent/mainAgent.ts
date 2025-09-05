@@ -329,4 +329,8 @@ const graph = new StateGraph<AgentState>({
 
 console.log(`🚀 AI Agent graph compiled successfully with 5 nodes`);
 
+// Compile the graph
 export const mainAgent = graph.compile();
+
+// Export the graph for LangGraph Studio
+export const graph_definition = graph;
