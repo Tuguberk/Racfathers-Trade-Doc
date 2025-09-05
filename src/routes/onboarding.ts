@@ -233,17 +233,271 @@ router.get("/api/wallets/:whatsappNumber", async (req, res) => {
   }
 });
 
+// Generate new onboarding URL for changing API keys
+router.post("/api/change-api-keys", async (req, res) => {
+  const { whatsappNumber } = req.body as { whatsappNumber?: string };
+  if (!whatsappNumber)
+    return res.status(400).json({ error: "whatsappNumber required" });
+
+  console.log(`🔄 API key change request from: ${whatsappNumber}`);
+
+  // Verify user exists
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber },
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const token = generateToken();
+  await setToken(`change-api:${token}`, whatsappNumber, 300);
+  const url = `${config.appBaseUrl}/change-api/${token}`;
+
+  console.log(
+    `🔗 Generated API change token: ${token} for user: ${whatsappNumber}`
+  );
+  return res.json({
+    url,
+    message: "API key change link generated (valid for 5 minutes)",
+  });
+});
+
+// Generate new onboarding URL for managing wallet addresses
+router.post("/api/change-wallets", async (req, res) => {
+  const { whatsappNumber } = req.body as { whatsappNumber?: string };
+  if (!whatsappNumber)
+    return res.status(400).json({ error: "whatsappNumber required" });
+
+  console.log(`🔄 Wallet change request from: ${whatsappNumber}`);
+
+  // Verify user exists
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber },
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const token = generateToken();
+  await setToken(`change-wallets:${token}`, whatsappNumber, 300);
+  const url = `${config.appBaseUrl}/change-wallets/${token}`;
+
+  console.log(
+    `🔗 Generated wallet change token: ${token} for user: ${whatsappNumber}`
+  );
+  return res.json({
+    url,
+    message: "Wallet management link generated (valid for 5 minutes)",
+  });
+});
+
+// Change API Keys page
+router.get("/change-api/:token", async (req, res) => {
+  const token = req.params.token;
+  console.log(`🔄 API change page accessed with token: ${token}`);
+  const number = await getToken(`change-api:${token}`);
+  if (!number) {
+    console.log(`❌ Invalid or expired API change token: ${token}`);
+    return res.status(400).send(
+      page(
+        `<div style="text-align: center; padding: 40px 20px;">
+            <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+            <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid or Expired Link</h3>
+            <p style="color: #64748b; margin-bottom: 24px;">This API key change link is no longer valid. Please request a new one from WhatsApp.</p>
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; color: #b91c1c;">
+              💡 Return to WhatsApp and type "change api key" to get a new link.
+            </div>
+          </div>`
+      )
+    );
+  }
+
+  console.log(`✅ Valid API change token for: ${number}`);
+  res.send(
+    page(`
+    <div style="text-align: center; margin-bottom: 20px;">
+      <h3 style="color: #1e293b; margin-bottom: 8px;">🔄 Update API Keys</h3>
+      <p style="color: #64748b; font-size: 14px;">Update your Binance API credentials</p>
+    </div>
+    
+    <form method="POST">
+      <div class="form-group">
+        <label>🔑 New Binance API Key</label>
+        <input name="apiKey" required placeholder="Enter your new Binance API Key"/>
+      </div>
+      
+      <div class="form-group">
+        <label>🔐 New Binance Secret Key</label>
+        <input name="apiSecret" required placeholder="Enter your new Binance Secret Key"/>
+      </div>
+      
+      <button type="submit" class="btn btn-submit">
+        🔄 Update API Keys
+      </button>
+    </form>
+    
+    <script>
+      document.querySelector('form').addEventListener('submit', function(e) {
+        const submitBtn = document.querySelector('.btn-submit');
+        submitBtn.innerHTML = '⏳ Updating...';
+        submitBtn.disabled = true;
+      });
+    </script>
+  `)
+  );
+});
+
+// Change Wallets page
+router.get("/change-wallets/:token", async (req, res) => {
+  const token = req.params.token;
+  console.log(`🔄 Wallet change page accessed with token: ${token}`);
+  const number = await getToken(`change-wallets:${token}`);
+  if (!number) {
+    console.log(`❌ Invalid or expired wallet change token: ${token}`);
+    return res.status(400).send(
+      page(
+        `<div style="text-align: center; padding: 40px 20px;">
+            <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+            <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid or Expired Link</h3>
+            <p style="color: #64748b; margin-bottom: 24px;">This wallet management link is no longer valid. Please request a new one from WhatsApp.</p>
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; color: #b91c1c;">
+              💡 Return to WhatsApp and type "change wallets" to get a new link.
+            </div>
+          </div>`
+      )
+    );
+  }
+
+  console.log(`✅ Valid wallet change token for: ${number}`);
+
+  // Get existing wallets for this user
+  const existingWallets = await getUserWalletAddresses(number);
+
+  res.send(
+    page(`
+    <div style="text-align: center; margin-bottom: 20px;">
+      <h3 style="color: #1e293b; margin-bottom: 8px;">🔄 Manage Wallet Addresses</h3>
+      <p style="color: #64748b; font-size: 14px;">Update your crypto wallet addresses</p>
+    </div>
+    
+    ${
+      existingWallets.length > 0
+        ? `
+    <div style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+      <h4 style="margin: 0 0 12px 0; color: #374151;">Current Wallets:</h4>
+      ${existingWallets
+        .map(
+          (wallet) => `
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 8px;">
+          <div style="font-family: monospace; font-size: 14px; color: #374151; word-break: break-all;">${
+            wallet.address
+          }</div>
+          ${
+            wallet.label
+              ? `<div style="font-size: 12px; color: #6b7280; margin-top: 4px;">${wallet.label}</div>`
+              : ""
+          }
+        </div>
+      `
+        )
+        .join("")}
+    </div>
+    `
+        : ""
+    }
+    
+    <form method="POST">
+      <div class="wallet-section">
+        <h3><span class="wallet-icon"></span>Update Wallet Addresses</h3>
+        <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Add new wallet addresses. This will replace all your current wallets.</p>
+        
+        <div id="wallet-inputs">
+          <div id="wallet-placeholder" class="wallet-placeholder">
+            Click "Add Wallet" to start adding your wallet addresses
+          </div>
+        </div>
+        
+        <button type="button" onclick="addWalletInput()" class="btn btn-add">
+          <span>+</span> Add Wallet Address
+        </button>
+      </div>
+      
+      <button type="submit" class="btn btn-submit">
+        🔄 Update Wallets
+      </button>
+    </form>
+    
+    <script>
+      let walletCount = 0;
+      
+      function addWalletInput() {
+        walletCount++;
+        const placeholder = document.getElementById('wallet-placeholder');
+        if (placeholder) {
+          placeholder.style.display = 'none';
+        }
+        
+        const walletInputs = document.getElementById('wallet-inputs');
+        const newGroup = document.createElement('div');
+        newGroup.className = 'wallet-input-group';
+        newGroup.innerHTML = \`
+          <input 
+            name="walletAddress[]" 
+            placeholder="0x... or wallet address" 
+            style="font-family: 'Courier New', monospace; font-size: 14px;"
+          />
+          <input 
+            name="walletLabel[]" 
+            placeholder="Label (e.g., Main Wallet)"
+          />
+          <button 
+            type="button" 
+            onclick="removeWalletInput(this)" 
+            class="btn btn-remove"
+            title="Remove wallet"
+          >
+            ×
+          </button>
+        \`;
+        walletInputs.appendChild(newGroup);
+        
+        const newAddressInput = newGroup.querySelector('input[name="walletAddress[]"]');
+        newAddressInput.focus();
+      }
+      
+      function removeWalletInput(button) {
+        walletCount--;
+        button.parentElement.remove();
+        
+        if (walletCount === 0) {
+          const placeholder = document.getElementById('wallet-placeholder');
+          if (placeholder) {
+            placeholder.style.display = 'block';
+          }
+        }
+      }
+      
+      document.querySelector('form').addEventListener('submit', function(e) {
+        const submitBtn = document.querySelector('.btn-submit');
+        submitBtn.innerHTML = '⏳ Updating...';
+        submitBtn.disabled = true;
+      });
+    </script>
+  `)
+  );
+});
+
 router.get("/onboard/:token", async (req, res) => {
   const token = req.params.token;
   console.log(`🔗 Onboarding page accessed with token: ${token}`);
   const number = await getToken(`onboard:${token}`);
   if (!number) {
     console.log(`❌ Invalid or expired onboarding token: ${token}`);
-    return res
-      .status(400)
-      .send(
-        page(
-          `<div style="text-align: center; padding: 40px 20px;">
+    return res.status(400).send(
+      page(
+        `<div style="text-align: center; padding: 40px 20px;">
             <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
             <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid or Expired Link</h3>
             <p style="color: #64748b; margin-bottom: 24px;">This onboarding link is no longer valid. Please request a new one from WhatsApp.</p>
@@ -251,8 +505,8 @@ router.get("/onboard/:token", async (req, res) => {
               💡 Return to WhatsApp and send a message to get a new setup link.
             </div>
           </div>`
-        )
-      );
+      )
+    );
   }
   console.log(`✅ Valid onboarding token for: ${number}`);
   res.send(
@@ -357,22 +611,23 @@ router.post("/onboard/:token", async (req, res) => {
   const number = await getToken(`onboard:${token}`);
   if (!number) {
     console.log(`❌ Invalid token on API keys submission: ${token}`);
-    return res.status(400).send(page(`
+    return res.status(400).send(
+      page(`
       <div style="text-align: center; padding: 40px 20px;">
         <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
         <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid Link</h3>
         <p style="color: #64748b;">This onboarding link is no longer valid.</p>
       </div>
-    `));
+    `)
+    );
   }
 
   const apiKey = String((req.body as any)?.apiKey || "");
   const apiSecret = String((req.body as any)?.apiSecret || "");
   if (!apiKey || !apiSecret) {
     console.log(`⚠️  Incomplete API credentials for: ${number}`);
-    return res
-      .status(400)
-      .send(page(`
+    return res.status(400).send(
+      page(`
         <div style="text-align: center; padding: 40px 20px;">
           <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
           <h3 style="color: #ef4444; margin-bottom: 12px;">Incomplete Information</h3>
@@ -381,7 +636,8 @@ router.post("/onboard/:token", async (req, res) => {
             💡 Please go back and fill in both API credentials.
           </div>
         </div>
-      `));
+      `)
+    );
   }
 
   // Process wallet addresses
@@ -414,24 +670,22 @@ router.post("/onboard/:token", async (req, res) => {
       `⚠️  Invalid wallet addresses provided for: ${number}`,
       invalidWallets
     );
-    return res
-      .status(400)
-      .send(
-        page(
-          `<div style="text-align: center; padding: 40px 20px;">
+    return res.status(400).send(
+      page(
+        `<div style="text-align: center; padding: 40px 20px;">
             <div style="font-size: 48px; margin-bottom: 16px;">🚫</div>
             <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid Wallet Address</h3>
             <p style="color: #64748b; margin-bottom: 24px;">One or more wallet addresses have an invalid format.</p>
             <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; color: #b91c1c;">
               <strong>Invalid addresses:</strong><br>
-              ${invalidWallets.map(addr => `• ${addr}`).join('<br>')}
+              ${invalidWallets.map((addr) => `• ${addr}`).join("<br>")}
             </div>
             <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1; margin-top: 16px;">
               💡 Supported formats: Ethereum (0x...), Bitcoin (1..., 3..., bc1...), and other major crypto addresses.
             </div>
           </div>`
-        )
-      );
+      )
+    );
   }
 
   console.log(`🔐 Encrypting API credentials for: ${number}`);
@@ -522,6 +776,250 @@ router.post("/onboard/:token", async (req, res) => {
         </div>
       </div>`
     )
+  );
+});
+
+// Handle API key changes
+router.post("/change-api/:token", async (req, res) => {
+  const token = req.params.token;
+  console.log(`🔄 API keys update submission for token: ${token}`);
+  const number = await getToken(`change-api:${token}`);
+  if (!number) {
+    console.log(`❌ Invalid token on API keys update: ${token}`);
+    return res.status(400).send(
+      page(`
+      <div style="text-align: center; padding: 40px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+        <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid Link</h3>
+        <p style="color: #64748b;">This API key change link is no longer valid.</p>
+      </div>
+    `)
+    );
+  }
+
+  const apiKey = String((req.body as any)?.apiKey || "");
+  const apiSecret = String((req.body as any)?.apiSecret || "");
+  if (!apiKey || !apiSecret) {
+    console.log(`⚠️  Incomplete API credentials for API change: ${number}`);
+    return res.status(400).send(
+      page(`
+      <div style="text-align: center; padding: 40px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+        <h3 style="color: #ef4444; margin-bottom: 12px;">Incomplete Information</h3>
+        <p style="color: #64748b; margin-bottom: 24px;">Both Binance API Key and Secret Key are required.</p>
+      </div>
+    `)
+    );
+  }
+
+  console.log(`🔐 Updating API credentials for: ${number}`);
+  const encryptedApiKey = encrypt(apiKey);
+  const encryptedApiSecret = encrypt(apiSecret);
+
+  // Update user's API keys
+  await prisma.user.update({
+    where: { whatsappNumber: number },
+    data: {
+      encryptedApiKey,
+      encryptedApiSecret,
+    },
+  });
+
+  await delToken(`change-api:${token}`);
+  console.log(`🧹 API change token cleaned up: ${token}`);
+
+  // Send WhatsApp confirmation
+  try {
+    if (
+      config.twilio.accountSid &&
+      config.twilio.authToken &&
+      config.twilio.from
+    ) {
+      console.log(`📱 Sending API update confirmation to: ${number}`);
+      const client = twilio(config.twilio.accountSid, config.twilio.authToken);
+      await client.messages.create({
+        from: config.twilio.from,
+        to: number,
+        body: "🔄 Your Binance API keys have been updated successfully!",
+      });
+      console.log(`✅ API update confirmation sent successfully`);
+    }
+  } catch (e: any) {
+    console.error(`❌ Failed to send API update confirmation:`, e.message);
+  }
+
+  console.log(`🎉 API keys updated successfully for: ${number}`);
+  res.send(
+    page(`
+    <div style="text-align: center; padding: 40px 20px;">
+      <div style="font-size: 64px; margin-bottom: 24px;">🎉</div>
+      <h3 style="color: #10b981; margin-bottom: 16px;">API Keys Updated!</h3>
+      <p style="color: #64748b; margin-bottom: 24px;">Your Binance API credentials have been updated and encrypted securely.</p>
+      <div style="background: #ecfdf5; border: 1px solid #d1fae5; border-radius: 12px; padding: 24px; margin: 24px 0;">
+        <div style="font-size: 24px; margin-bottom: 12px;">✅</div>
+        <p style="color: #065f46; font-weight: 600; margin: 0;">New API keys active</p>
+      </div>
+      <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1;">
+        💬 <strong>Next:</strong> Return to WhatsApp to continue trading
+      </div>
+    </div>
+  `)
+  );
+});
+
+// Handle wallet changes
+router.post("/change-wallets/:token", async (req, res) => {
+  const token = req.params.token;
+  console.log(`🔄 Wallet addresses update submission for token: ${token}`);
+  const number = await getToken(`change-wallets:${token}`);
+  if (!number) {
+    console.log(`❌ Invalid token on wallet addresses update: ${token}`);
+    return res.status(400).send(
+      page(`
+      <div style="text-align: center; padding: 40px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+        <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid Link</h3>
+        <p style="color: #64748b;">This wallet management link is no longer valid.</p>
+      </div>
+    `)
+    );
+  }
+
+  // Process wallet addresses
+  const walletAddresses = (req.body as any)?.walletAddress || [];
+  const walletLabels = (req.body as any)?.walletLabel || [];
+
+  const addresses = Array.isArray(walletAddresses)
+    ? walletAddresses
+    : [walletAddresses];
+  const labels = Array.isArray(walletLabels) ? walletLabels : [walletLabels];
+
+  const validWallets = addresses
+    .map((addr: string, index: number) => ({
+      address: String(addr || "").trim(),
+      label: String(labels[index] || "").trim() || null,
+    }))
+    .filter(
+      (wallet: any) =>
+        wallet.address.length > 0 && isValidWalletAddress(wallet.address)
+    );
+
+  // Check if any invalid wallet addresses were provided
+  const invalidWallets = addresses
+    .filter((addr: string) => addr && addr.trim().length > 0)
+    .filter((addr: string) => !isValidWalletAddress(addr.trim()));
+
+  if (invalidWallets.length > 0) {
+    console.log(
+      `⚠️  Invalid wallet addresses provided for wallet update: ${number}`,
+      invalidWallets
+    );
+    return res.status(400).send(
+      page(`
+      <div style="text-align: center; padding: 40px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">🚫</div>
+        <h3 style="color: #ef4444; margin-bottom: 12px;">Invalid Wallet Address</h3>
+        <p style="color: #64748b; margin-bottom: 24px;">One or more wallet addresses have an invalid format.</p>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; color: #b91c1c;">
+          <strong>Invalid addresses:</strong><br>
+          ${invalidWallets.map((addr) => `• ${addr}`).join("<br>")}
+        </div>
+        <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1; margin-top: 16px;">
+          💡 Supported formats: Ethereum (0x...), Bitcoin (1..., 3..., bc1...), and other major crypto addresses.
+        </div>
+      </div>
+    `)
+    );
+  }
+
+  console.log(`🔗 Updating wallet addresses for: ${number}`);
+
+  // Get user
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber: number },
+  });
+
+  if (!user) {
+    return res.status(404).send(
+      page(`
+      <div style="text-align: center; padding: 40px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+        <h3 style="color: #ef4444; margin-bottom: 12px;">User Not Found</h3>
+        <p style="color: #64748b;">Unable to find user account.</p>
+      </div>
+    `)
+    );
+  }
+
+  // Delete existing wallet addresses
+  await prisma.walletAddress.deleteMany({
+    where: { userId: user.id },
+  });
+
+  // Create new wallet addresses if any
+  if (validWallets.length > 0) {
+    await prisma.walletAddress.createMany({
+      data: validWallets.map((wallet: any) => ({
+        userId: user.id,
+        address: wallet.address,
+        label: wallet.label,
+      })),
+    });
+  }
+
+  await delToken(`change-wallets:${token}`);
+  console.log(`🧹 Wallet change token cleaned up: ${token}`);
+
+  // Send WhatsApp confirmation
+  try {
+    if (
+      config.twilio.accountSid &&
+      config.twilio.authToken &&
+      config.twilio.from
+    ) {
+      console.log(`📱 Sending wallet update confirmation to: ${number}`);
+      const client = twilio(config.twilio.accountSid, config.twilio.authToken);
+      const message =
+        validWallets.length > 0
+          ? `🔄 Your wallet addresses have been updated! Now tracking ${
+              validWallets.length
+            } wallet${validWallets.length > 1 ? "s" : ""}.`
+          : "🔄 All wallet addresses have been removed from your account.";
+
+      await client.messages.create({
+        from: config.twilio.from,
+        to: number,
+        body: message,
+      });
+      console.log(`✅ Wallet update confirmation sent successfully`);
+    }
+  } catch (e: any) {
+    console.error(`❌ Failed to send wallet update confirmation:`, e.message);
+  }
+
+  console.log(`🎉 Wallet addresses updated successfully for: ${number}`);
+  const walletMessage =
+    validWallets.length > 0
+      ? `${validWallets.length} wallet address${
+          validWallets.length > 1 ? "es" : ""
+        } saved`
+      : "all wallet addresses removed";
+
+  res.send(
+    page(`
+    <div style="text-align: center; padding: 40px 20px;">
+      <div style="font-size: 64px; margin-bottom: 24px;">🎉</div>
+      <h3 style="color: #10b981; margin-bottom: 16px;">Wallets Updated!</h3>
+      <p style="color: #64748b; margin-bottom: 24px;">Your wallet addresses have been updated - ${walletMessage}.</p>
+      <div style="background: #ecfdf5; border: 1px solid #d1fae5; border-radius: 12px; padding: 24px; margin: 24px 0;">
+        <div style="font-size: 24px; margin-bottom: 12px;">✅</div>
+        <p style="color: #065f46; font-weight: 600; margin: 0;">Wallet configuration updated</p>
+      </div>
+      <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1;">
+        💬 <strong>Next:</strong> Return to WhatsApp to continue trading
+      </div>
+    </div>
+  `)
   );
 });
 

@@ -4,6 +4,7 @@ import { mainAgent } from "../agent/mainAgent.js";
 import { config, generateToken } from "../config.js";
 import { setToken } from "../services/redisService.js";
 import twilio from "twilio";
+import fetch from "node-fetch";
 
 const router = Router();
 
@@ -93,6 +94,90 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
   }
 
   console.log(`👤 Existing user found: ${user.id} (${from})`);
+
+  // Check for special commands before processing with AI agent
+  const lowerBody = body.toLowerCase().trim();
+
+  // Handle help command
+  if (
+    lowerBody === "help" ||
+    lowerBody === "commands" ||
+    lowerBody === "menu"
+  ) {
+    console.log(`ℹ️ Help command detected from: ${from}`);
+    twiml.message(
+      `🤖 *Psy-Trader Commands*\n\n🔄 *Change API Key* - Update your Binance API credentials\n🔗 *Change Wallets* - Manage your wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also just chat with me naturally about trading, emotions, or ask for portfolio analysis!`
+    );
+    return res.type("text/xml").send(twiml.toString());
+  }
+
+  // Handle "change api key" or "change api keys" command
+  if (lowerBody.includes("change api") || lowerBody.includes("update api")) {
+    console.log(`🔄 API key change command detected from: ${from}`);
+    try {
+      const response = await fetch(`${config.appBaseUrl}/api/change-api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsappNumber: from }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          url: string;
+          message: string;
+        };
+        twiml.message(
+          `🔄 Update Your API Keys\n\nClick the link below to securely update your Binance API credentials (valid for 5 minutes):\n\n${data.url}\n\n⚡ This will replace your current API keys with new ones.`
+        );
+      } else {
+        twiml.message(
+          "❌ Sorry, I couldn't generate an API key update link. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error("Error generating API key change link:", error);
+      twiml.message(
+        "❌ There was an error processing your request. Please try again."
+      );
+    }
+    return res.type("text/xml").send(twiml.toString());
+  }
+
+  // Handle "change wallets" or "manage wallets" command
+  if (
+    lowerBody.includes("change wallet") ||
+    lowerBody.includes("manage wallet") ||
+    lowerBody.includes("update wallet")
+  ) {
+    console.log(`🔄 Wallet change command detected from: ${from}`);
+    try {
+      const response = await fetch(`${config.appBaseUrl}/api/change-wallets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsappNumber: from }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          url: string;
+          message: string;
+        };
+        twiml.message(
+          `🔄 Manage Your Wallets\n\nClick the link below to update your crypto wallet addresses (valid for 5 minutes):\n\n${data.url}\n\n💡 You can add, remove, or replace your current wallet addresses.`
+        );
+      } else {
+        twiml.message(
+          "❌ Sorry, I couldn't generate a wallet management link. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error("Error generating wallet change link:", error);
+      twiml.message(
+        "❌ There was an error processing your request. Please try again."
+      );
+    }
+    return res.type("text/xml").send(twiml.toString());
+  }
 
   // Save incoming message
   await prisma.chatMessage.create({

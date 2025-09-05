@@ -149,3 +149,44 @@ export async function updateWalletLabel(
     },
   });
 }
+
+/**
+ * Check if user exists by WhatsApp number
+ */
+export async function userExists(whatsappNumber: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber },
+  });
+  return !!user;
+}
+
+/**
+ * Get user stats for WhatsApp number
+ */
+export async function getUserStats(whatsappNumber: string) {
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber },
+    include: {
+      walletAddresses: true,
+      _count: {
+        select: {
+          messages: true,
+          portfolioSnapshots: true,
+        },
+      },
+    },
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  return {
+    userId: user.id,
+    whatsappNumber: user.whatsappNumber,
+    walletCount: user.walletAddresses.length,
+    messageCount: user._count.messages,
+    portfolioSnapshotCount: user._count.portfolioSnapshots,
+    createdAt: user.createdAt,
+  };
+}
