@@ -420,13 +420,15 @@ router.get("/change-api/:token", async (req, res) => {
     include: {
       exchangeKeys: {
         where: { isActive: true },
-        orderBy: { createdAt: 'asc' }
-      }
-    }
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
 
   const currentExchanges = user?.exchangeKeys || [];
-  console.log(`📊 Found ${currentExchanges.length} existing exchange keys for user`);
+  console.log(
+    `📊 Found ${currentExchanges.length} existing exchange keys for user`
+  );
 
   res.send(
     page(`
@@ -435,10 +437,14 @@ router.get("/change-api/:token", async (req, res) => {
       <p style="color: #64748b; font-size: 14px;">Manage API keys from all your exchanges</p>
     </div>
 
-    ${currentExchanges.length > 0 ? `
+    ${
+      currentExchanges.length > 0
+        ? `
     <div style="background: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
       <h4 style="margin: 0 0 16px 0; color: #374151;">📊 Current Exchange Connections:</h4>
-      ${currentExchanges.map(exchangeKey => `
+      ${currentExchanges
+        .map(
+          (exchangeKey) => `
         <div style="background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
           <div>
             <div style="font-weight: 600; color: #374151; text-transform: capitalize;">
@@ -452,16 +458,24 @@ router.get("/change-api/:token", async (req, res) => {
             ✅ Active
           </div>
         </div>
-      `).join('')}
+      `
+        )
+        .join("")}
     </div>
-    ` : ''}
+    `
+        : ""
+    }
     
     <form method="POST">
       <div class="exchange-section">
         <h3><span class="exchange-icon">🏦</span>Exchange API Keys</h3>
         <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
           Add or update API keys from your exchanges. All keys are optional - add only the exchanges you use.
-          ${currentExchanges.length > 0 ? ' Adding new keys will replace your existing ones.' : ''}
+          ${
+            currentExchanges.length > 0
+              ? " Adding new keys will replace your existing ones."
+              : ""
+          }
         </p>
 
         <!-- Binance -->
@@ -1142,41 +1156,47 @@ router.post("/change-api/:token", async (req, res) => {
     where: { whatsappNumber: number },
   });
   if (!user) {
-    return res.status(404).send(
-      page(
-        `<div style="text-align: center; padding: 40px 20px;">User not found.</div>`
-      )
-    );
+    return res
+      .status(404)
+      .send(
+        page(
+          `<div style="text-align: center; padding: 40px 20px;">User not found.</div>`
+        )
+      );
   }
 
   // Deactivate all existing exchange keys first
   await prisma.exchangeApiKey.updateMany({
     where: { userId: user.id },
-    data: { isActive: false }
+    data: { isActive: false },
   });
 
   // Process exchange API keys
-  const exchanges = ['binance', 'bybit', 'kraken'];
+  const exchanges = ["binance", "bybit", "kraken"];
   const updatedExchanges = [];
   let hasValidKeys = false;
 
   for (const exchange of exchanges) {
-    const apiKey = String((req.body as any)?.[`${exchange}-apiKey`] || "").trim();
-    const apiSecret = String((req.body as any)?.[`${exchange}-apiSecret`] || "").trim();
-    
+    const apiKey = String(
+      (req.body as any)?.[`${exchange}-apiKey`] || ""
+    ).trim();
+    const apiSecret = String(
+      (req.body as any)?.[`${exchange}-apiSecret`] || ""
+    ).trim();
+
     if (apiKey && apiSecret) {
       console.log(`🔐 Processing ${exchange} API keys for user: ${number}`);
-      
+
       try {
         const encryptedApiKey = encrypt(apiKey);
         const encryptedApiSecret = encrypt(apiSecret);
 
         await prisma.exchangeApiKey.upsert({
-          where: { 
-            userId_exchange: { 
-              userId: user.id, 
-              exchange: exchange 
-            } 
+          where: {
+            userId_exchange: {
+              userId: user.id,
+              exchange: exchange,
+            },
           },
           create: {
             userId: user.id,
@@ -1196,7 +1216,10 @@ router.post("/change-api/:token", async (req, res) => {
         hasValidKeys = true;
         console.log(`✅ ${exchange} API keys updated successfully`);
       } catch (error: any) {
-        console.error(`❌ Failed to update ${exchange} API keys:`, error.message);
+        console.error(
+          `❌ Failed to update ${exchange} API keys:`,
+          error.message
+        );
       }
     } else {
       console.log(`⚠️ Skipping ${exchange} - no API keys provided`);
@@ -1222,14 +1245,18 @@ router.post("/change-api/:token", async (req, res) => {
 
   // Send WhatsApp confirmation
   try {
-    if (config.twilio.accountSid && config.twilio.authToken && config.twilio.from) {
+    if (
+      config.twilio.accountSid &&
+      config.twilio.authToken &&
+      config.twilio.from
+    ) {
       console.log(`📱 Sending API update confirmation to: ${number}`);
       const client = twilio(config.twilio.accountSid, config.twilio.authToken);
-      
-      const exchangeList = updatedExchanges.map(ex => 
-        ex.charAt(0).toUpperCase() + ex.slice(1)
-      ).join(', ');
-      
+
+      const exchangeList = updatedExchanges
+        .map((ex) => ex.charAt(0).toUpperCase() + ex.slice(1))
+        .join(", ");
+
       await client.messages.create({
         from: config.twilio.from,
         to: number,
@@ -1242,8 +1269,8 @@ router.post("/change-api/:token", async (req, res) => {
   }
 
   console.log(`🎉 Multi-exchange API keys updated successfully for: ${number}`);
-  console.log(`📊 Updated exchanges: ${updatedExchanges.join(', ')}`);
-  
+  console.log(`📊 Updated exchanges: ${updatedExchanges.join(", ")}`);
+
   res.send(
     page(`
     <div style="text-align: center; padding: 40px 20px;">
@@ -1254,9 +1281,9 @@ router.post("/change-api/:token", async (req, res) => {
       <div style="background: #ecfdf5; border: 1px solid #d1fae5; border-radius: 12px; padding: 24px; margin: 24px 0;">
         <div style="font-size: 24px; margin-bottom: 12px;">🏦</div>
         <p style="color: #065f46; font-weight: 600; margin: 0 0 8px 0;">Updated Exchanges:</p>
-        <p style="color: #059669; margin: 0;">${updatedExchanges.map(ex => 
-          ex.charAt(0).toUpperCase() + ex.slice(1)
-        ).join(', ')}</p>
+        <p style="color: #059669; margin: 0;">${updatedExchanges
+          .map((ex) => ex.charAt(0).toUpperCase() + ex.slice(1))
+          .join(", ")}</p>
       </div>
       
       <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; color: #0369a1; margin-bottom: 20px;">

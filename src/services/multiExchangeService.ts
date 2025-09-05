@@ -20,13 +20,33 @@ export interface ExchangeBalance {
   error?: string;
 }
 
+export interface Position {
+  id: string;
+  exchange: string;
+  symbol: string;
+  side: "long" | "short";
+  size: number;
+  notional?: number;
+  entryPrice?: number;
+  markPrice?: number;
+  percentage?: number;
+  unrealizedPnl?: number;
+  realizedPnl?: number;
+  marginType?: "isolated" | "cross";
+  leverage?: number;
+  isActive: boolean;
+}
+
 export interface MultiExchangePortfolioData {
   exchanges: ExchangeBalance[];
   walletPortfolios: WalletPortfolio[];
+  positions: Position[];
   combinedSummary: {
     exchangesTotalUSDT: number;
     walletUSDT: number;
     totalUSDT: number;
+    totalPositions: number;
+    totalUnrealizedPnl: number;
     topCombinedHoldings: Array<{
       source: "exchange" | "wallet";
       exchange?: string;
@@ -58,7 +78,7 @@ const EXCHANGE_CONFIGS = {
   bybit: {
     class: ccxt.bybit,
     options: {
-      defaultType: "spot",
+      defaultType: "unified", // Unified trading account for spot and futures
     },
   },
   kraken: {
@@ -338,6 +358,187 @@ async function fetchExchangeBalance(
   }
 }
 
+// Fetch positions from a specific exchange
+async function fetchExchangePositions(
+  exchangeName: string,
+  apiKey: string,
+  apiSecret: string,
+  passphrase?: string
+): Promise<Position[]> {
+  console.log(`🎯 Fetching positions from ${exchangeName}...`);
+
+  const config =
+    EXCHANGE_CONFIGS[exchangeName as keyof typeof EXCHANGE_CONFIGS];
+  if (!config) {
+    console.log(`❌ Unsupported exchange for positions: ${exchangeName}`);
+    return [];
+  }
+
+  // Check if exchange supports positions/futures
+  function supportsFutures(exchange: string): boolean {
+    const futuresSupported = ["binance", "bybit", "okx", "bitmex", "bitget"];
+    return (
+      futuresSupported.includes(exchange.toLowerCase()) ||
+      exchange.includes("futures")
+    );
+  }
+
+  if (!supportsFutures(exchangeName)) {
+    console.log(`⚠️ ${exchangeName} does not support positions (spot only)`);
+    return [];
+  }
+
+  try {
+    // Special handling for futures exchanges
+    let finalOptions: any = { ...config.options };
+
+    if (
+      exchangeName.includes("futures") ||
+      (exchangeName === "bybit" && supportsFutures(exchangeName))
+    ) {
+      finalOptions.defaultType =
+        exchangeName === "bybit" ? "unified" : "future";
+    }
+
+    const exchangeOptions: any = {
+      apiKey,
+      secret: apiSecret,
+      enableRateLimit: true,
+      sandbox: false,
+      options: finalOptions,
+    };
+
+    if (passphrase) {
+      exchangeOptions.passphrase = passphrase;
+    }
+
+    const exchange = new config.class(exchangeOptions);
+    await exchange.loadMarkets();
+
+    // Fetch positions
+    console.log(`📊 Fetching positions from ${exchangeName}...`);
+    const positions = await exchange.fetchPositions();
+
+    console.log(
+      `🎯 Found ${positions.length} total positions from ${exchangeName}`
+    );
+
+    // Filter only active positions
+    const activePositions = positions.filter(
+      (pos: any) => pos.contracts > 0 || Math.abs(pos.unrealizedPnl || 0) > 0.01
+    );
+
+    console.log(
+      `🔥 Active positions: ${activePositions.length}/${positions.length}`
+    );
+
+    const formattedPositions: Position[] = activePositions.map((pos: any) => {
+      const side = pos.side === "long" ? "long" : "short";
+      const unrealizedPnl = pos.unrealizedPnl || 0;
+      const percentage = pos.percentage || 0;
+
+      console.log(
+        `📍 Position: ${pos.symbol} ${side} - Size: ${
+          pos.contracts
+        }, PnL: $${unrealizedPnl.toFixed(2)} (${percentage.toFixed(2)}%)`
+      );
+
+      return {
+        id: `${exchangeName}-${pos.symbol}-${Date.now()}`,
+        exchange: exchangeName,
+        symbol: pos.symbol,
+        side,
+        size: pos.contracts || pos.contractSize || 0,
+        notional: pos.notional,
+        entryPrice: pos.entryPrice,
+        markPrice: pos.markPrice,
+        percentage: percentage,
+        unrealizedPnl: unrealizedPnl,
+        realizedPnl: pos.realizedPnl || 0,
+        marginType: pos.marginType as "isolated" | "cross" | undefined,
+        leverage: pos.leverage,
+        isActive: true,
+      };
+    });
+
+    console.log(
+      `✅ Formatted ${formattedPositions.length} active positions from ${exchangeName}`
+    );
+    return formattedPositions;
+  } catch (error: any) {
+    console.error(
+      `❌ Error fetching positions from ${exchangeName}:`,
+      error.message
+    );
+    return [];
+  }
+}
+
+// Store positions in database
+async function storePositionsInDatabase(
+  userId: string,
+  positions: Position[]
+): Promise<void> {
+  console.log(`💾 Storing ${positions.length} positions for user: ${userId}`);
+
+  try {
+    // Deactivate all existing positions for this user
+    await prisma.position.updateMany({
+      where: { userId },
+      data: { isActive: false },
+    });
+
+    // Insert new positions
+    for (const position of positions) {
+      await prisma.position.upsert({
+        where: {
+          userId_exchange_symbol: {
+            userId: userId,
+            exchange: position.exchange,
+            symbol: position.symbol,
+          },
+        },
+        create: {
+          userId: userId,
+          exchange: position.exchange,
+          symbol: position.symbol,
+          side: position.side,
+          size: position.size,
+          notional: position.notional,
+          entryPrice: position.entryPrice,
+          markPrice: position.markPrice,
+          percentage: position.percentage,
+          unrealizedPnl: position.unrealizedPnl,
+          realizedPnl: position.realizedPnl,
+          marginType: position.marginType,
+          leverage: position.leverage,
+          isActive: true,
+        },
+        update: {
+          side: position.side,
+          size: position.size,
+          notional: position.notional,
+          entryPrice: position.entryPrice,
+          markPrice: position.markPrice,
+          percentage: position.percentage,
+          unrealizedPnl: position.unrealizedPnl,
+          realizedPnl: position.realizedPnl,
+          marginType: position.marginType,
+          leverage: position.leverage,
+          isActive: true,
+          timestamp: new Date(),
+        },
+      });
+    }
+
+    console.log(
+      `✅ Successfully stored ${positions.length} positions in database`
+    );
+  } catch (error: any) {
+    console.error(`❌ Error storing positions in database:`, error.message);
+  }
+}
+
 export async function fetchMultiExchangePortfolio(
   userId: string
 ): Promise<MultiExchangePortfolioData> {
@@ -358,10 +559,11 @@ export async function fetchMultiExchangePortfolio(
   }
 
   const exchangeBalances: ExchangeBalance[] = [];
+  const allPositions: Position[] = [];
 
-  // Fetch balances from all configured exchanges
+  // Fetch balances and positions from all configured exchanges
   for (const exchangeKey of user.exchangeKeys) {
-    console.log(`🏦 Fetching balance from ${exchangeKey.exchange}...`);
+    console.log(`🏦 Fetching data from ${exchangeKey.exchange}...`);
 
     const apiKey = decrypt(exchangeKey.encryptedApiKey);
     const apiSecret = decrypt(exchangeKey.encryptedApiSecret);
@@ -369,14 +571,28 @@ export async function fetchMultiExchangePortfolio(
       ? decrypt(exchangeKey.encryptedPassphrase)
       : undefined;
 
+    // Fetch balance
     const balance = await fetchExchangeBalance(
       exchangeKey.exchange,
       apiKey,
       apiSecret,
       passphrase
     );
-
     exchangeBalances.push(balance);
+
+    // Fetch positions (only for futures exchanges)
+    const positions = await fetchExchangePositions(
+      exchangeKey.exchange,
+      apiKey,
+      apiSecret,
+      passphrase
+    );
+    allPositions.push(...positions);
+  }
+
+  // Store positions in database
+  if (allPositions.length > 0) {
+    await storePositionsInDatabase(userId, allPositions);
   }
 
   // Fetch wallet portfolios
@@ -397,6 +613,13 @@ export async function fetchMultiExchangePortfolio(
     0
   );
   const totalUSDT = exchangesTotalUSDT + walletUSDT;
+
+  // Calculate position stats
+  const totalPositions = allPositions.length;
+  const totalUnrealizedPnl = allPositions.reduce(
+    (sum, pos) => sum + (pos.unrealizedPnl || 0),
+    0
+  );
 
   // Combine top holdings from all sources
   const topCombinedHoldings = [];
@@ -436,16 +659,77 @@ export async function fetchMultiExchangePortfolio(
   console.log(`   - Exchanges: $${exchangesTotalUSDT.toLocaleString()}`);
   console.log(`   - Wallets: $${walletUSDT.toLocaleString()}`);
   console.log(`   - Total: $${totalUSDT.toLocaleString()}`);
+  console.log(`   - Active Positions: ${totalPositions}`);
+  console.log(`   - Unrealized P&L: $${totalUnrealizedPnl.toFixed(2)}`);
 
   return {
     exchanges: exchangeBalances,
     walletPortfolios,
+    positions: allPositions,
     combinedSummary: {
       exchangesTotalUSDT,
       walletUSDT,
       totalUSDT,
+      totalPositions,
+      totalUnrealizedPnl,
       topCombinedHoldings: topCombinedHoldings.slice(0, 15),
     },
     plAnalysis: "Multi-exchange portfolio fetched successfully",
   };
+}
+
+// Fetch only positions (separate from portfolio)
+export async function fetchActivePositions(
+  userId: string
+): Promise<Position[]> {
+  console.log(`🎯 Fetching active positions for user: ${userId}`);
+
+  // Get user data
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      exchangeKeys: {
+        where: { isActive: true },
+      },
+    },
+  });
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  const allPositions: Position[] = [];
+
+  // Fetch positions from all futures exchanges
+  for (const exchangeKey of user.exchangeKeys) {
+    // Only fetch from futures-capable exchanges
+    if (
+      exchangeKey.exchange.includes("futures") ||
+      exchangeKey.exchange === "bybit"
+    ) {
+      console.log(`🎯 Fetching positions from ${exchangeKey.exchange}...`);
+
+      const apiKey = decrypt(exchangeKey.encryptedApiKey);
+      const apiSecret = decrypt(exchangeKey.encryptedApiSecret);
+      const passphrase = exchangeKey.encryptedPassphrase
+        ? decrypt(exchangeKey.encryptedPassphrase)
+        : undefined;
+
+      const positions = await fetchExchangePositions(
+        exchangeKey.exchange,
+        apiKey,
+        apiSecret,
+        passphrase
+      );
+      allPositions.push(...positions);
+    }
+  }
+
+  // Store positions in database
+  if (allPositions.length > 0) {
+    await storePositionsInDatabase(userId, allPositions);
+  }
+
+  console.log(`🎯 Total active positions found: ${allPositions.length}`);
+  return allPositions;
 }

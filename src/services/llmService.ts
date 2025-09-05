@@ -19,7 +19,7 @@ async function openRouterChat(model: string, prompt: string): Promise<string> {
         {
           role: "system",
           content:
-            "You are Psy-Trader, a professional trading psychology coach. CRITICAL: Keep responses under 1200 characters for WhatsApp. Be concise but supportive.",
+            "You are Rac'fella, a professional trading psychology coach. CRITICAL: Keep responses under 400 characters for WhatsApp. Be concise but supportive.",
         },
         { role: "user", content: prompt },
       ],

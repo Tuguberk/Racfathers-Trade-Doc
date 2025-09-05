@@ -1,7 +1,11 @@
 import { StateGraph } from "@langchain/langgraph";
 import { prisma } from "../db/prisma.js";
 import { AgentState } from "./state.js";
-import { fetchMultiExchangePortfolio } from "../services/multiExchangeService.js";
+import {
+  fetchMultiExchangePortfolio,
+  fetchActivePositions,
+  Position,
+} from "../services/multiExchangeService.js";
 import { PromptService } from "../services/promptService.js";
 import {
   getAdvancedAnalysis,
@@ -37,6 +41,27 @@ function isPortfolioRequest(message: string): boolean {
 
   const lowerMessage = message.toLowerCase();
   return portfolioKeywords.some((keyword) => lowerMessage.includes(keyword));
+}
+
+// Helper function to detect position-related requests
+function isPositionRequest(message: string): boolean {
+  const positionKeywords = [
+    "position",
+    "positions",
+    "active position",
+    "open position",
+    "futures",
+    "long",
+    "short",
+    "pnl",
+    "profit",
+    "loss",
+    "unrealized",
+    "leverage",
+  ];
+
+  const lowerMessage = message.toLowerCase();
+  return positionKeywords.some((keyword) => lowerMessage.includes(keyword));
 }
 
 // Helper function to detect emotional/feelings-related messages
@@ -108,13 +133,25 @@ function formatPortfolioTable(portfolioData: any): string {
   const {
     exchanges = [],
     walletPortfolios = [],
+    positions = [],
     combinedSummary,
   } = portfolioData;
 
   // If we have combinedSummary (new structure), use it
   if (combinedSummary && combinedSummary.totalUSDT > 0) {
     let table = `📊 *Portfolio Summary*\n`;
-    table += `💰 Total: $${combinedSummary.totalUSDT.toLocaleString()}\n\n`;
+    table += `💰 Total: $${combinedSummary.totalUSDT.toLocaleString()}\n`;
+
+    // Show positions summary if any
+    if (combinedSummary.totalPositions > 0) {
+      table += `🎯 Active Positions: ${combinedSummary.totalPositions}`;
+      const pnlColor = combinedSummary.totalUnrealizedPnl >= 0 ? "🟢" : "🔴";
+      table += ` | PnL: ${pnlColor} $${combinedSummary.totalUnrealizedPnl.toFixed(
+        2
+      )}\n`;
+    }
+
+    table += `\n`;
 
     // Show exchange breakdown
     if (combinedSummary.exchangesTotalUSDT > 0) {
@@ -192,6 +229,46 @@ function formatPortfolioTable(portfolioData: any): string {
       )} (${percentage}%)\n`;
     });
   }
+
+  return table;
+}
+
+// Format positions into a clean table
+export function formatPositionsTable(positions: Position[]): string {
+  if (!positions || positions.length === 0) {
+    return "🎯 *Active Positions*\n\nNo active positions found.";
+  }
+
+  let table = `🎯 *Active Positions* (${positions.length})\n\n`;
+
+  let totalPnl = 0;
+  positions.forEach((position, index) => {
+    const side = position.side === "long" ? "🟢 Long" : "🔴 Short";
+    const pnl = position.unrealizedPnl || 0;
+    const pnlColor = pnl >= 0 ? "🟢" : "🔴";
+    const percentage = position.percentage || 0;
+    const percentageColor = percentage >= 0 ? "🟢" : "🔴";
+
+    totalPnl += pnl;
+
+    table += `${index + 1}. ${side} ${position.symbol}\n`;
+    table += `   💰 Size: ${position.size.toFixed(4)}`;
+    if (position.leverage) {
+      table += ` | ⚡ ${position.leverage}x`;
+    }
+    table += `\n`;
+    table += `   🎯 Entry: $${position.entryPrice?.toFixed(2) || "N/A"}`;
+    table += ` | 📊 Mark: $${position.markPrice?.toFixed(2) || "N/A"}\n`;
+    table += `   ${pnlColor} PnL: $${pnl.toFixed(
+      2
+    )} (${percentageColor}${percentage.toFixed(2)}%)\n`;
+    table += `   🏦 ${position.exchange}\n\n`;
+  });
+
+  const totalPnlColor = totalPnl >= 0 ? "🟢" : "🔴";
+  table += `📈 *Total Unrealized PnL: ${totalPnlColor} $${totalPnl.toFixed(
+    2
+  )}*`;
 
   return table;
 }

@@ -3,6 +3,7 @@ import { prisma } from "../db/prisma.js";
 import { mainAgent } from "../agent/mainAgent.js";
 import { config, generateToken } from "../config.js";
 import { setToken } from "../services/redisService.js";
+import { sendWhatsAppNotification } from "../services/notificationService.js";
 import twilio from "twilio";
 import fetch from "node-fetch";
 
@@ -107,10 +108,45 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
   ) {
     console.log(`ℹ️ Help command detected from: ${from}`);
     twiml.message(
-      `🤖 *Psy-Trader Commands*\n\n🔄 *Change API Key* - Update your Binance API credentials\n🔗 *Change Wallets* - Manage your wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also just chat with me naturally about trading, emotions, or ask for portfolio analysis!`
+      `🤖 *Psy-Trader Commands*\n\n� *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n�🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
     );
     res.set("Content-Type", "text/xml; charset=utf-8");
     return res.send(twiml.toString());
+  }
+
+  // Handle "show positions" or "active positions" command
+  if (
+    (lowerBody.includes("show") && lowerBody.includes("position")) ||
+    lowerBody.includes("active position") ||
+    lowerBody.includes("my position") ||
+    lowerBody.includes("futures") ||
+    lowerBody === "positions"
+  ) {
+    console.log(`🎯 Positions command detected from: ${from}`);
+    twiml.message("🎯 Fetching your active positions...");
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    const twimlResponse = res.send(twiml.toString());
+
+    // Process positions in background
+    try {
+      const { fetchActivePositions } = await import(
+        "../services/multiExchangeService.js"
+      );
+      const { formatPositionsTable } = await import("../agent/mainAgent.js");
+      const positions = await fetchActivePositions(user.id);
+
+      const positionsTable = formatPositionsTable(positions);
+
+      await sendWhatsAppNotification(from, positionsTable);
+    } catch (error: any) {
+      console.error("Error fetching positions:", error);
+      await sendWhatsAppNotification(
+        from,
+        "❌ Sorry, I couldn't fetch your positions. Please make sure your exchange API keys are configured correctly."
+      );
+    }
+
+    return twimlResponse;
   }
 
   // Handle "change api key" or "change api keys" command
