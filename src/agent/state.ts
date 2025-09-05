@@ -7,5 +7,5 @@ export interface AgentState {
   relevantKnowledge: string;
   finalResponse: string;
   isPortfolioRequest?: boolean;
+  isEmotionalMessage?: boolean;
 }
-

@@ -57,6 +57,7 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
       relevantKnowledge: "",
       finalResponse: "",
       isPortfolioRequest: false,
+      isEmotionalMessage: false,
     });
 
     const reply = String(
@@ -67,7 +68,7 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     );
 
     // Split response into multiple messages if it contains separator
-    const responses = reply.split('\n\n---\n\n');
+    const responses = reply.split("\n\n---\n\n");
     console.log(`📤 Sending ${responses.length} message(s) to user`);
 
     // Send each response as a separate WhatsApp message
@@ -75,7 +76,11 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
       const message = responses[i].trim();
       if (message) {
         twiml.message(message);
-        console.log(`📤 Message ${i + 1}/${responses.length} prepared: ${message.substring(0, 50)}...`);
+        console.log(
+          `📤 Message ${i + 1}/${
+            responses.length
+          } prepared: ${message.substring(0, 50)}...`
+        );
       }
     }
 

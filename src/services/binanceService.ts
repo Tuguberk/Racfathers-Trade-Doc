@@ -139,45 +139,86 @@ export async function fetchPortfolio(
         estUSDT = numAmount;
         console.log(`💵 ${asset}: ${numAmount} USDT (direct)`);
       } else {
-        // Try multiple symbol formats
-        const symbols = [`${asset}/USDT`, `${asset}USDT`];
-        let priceFound = false;
+        // Handle Liquid Swap tokens (LD prefix)
+        if (asset.startsWith("LD")) {
+          const baseAsset = asset.substring(2); // Remove 'LD' prefix
+          console.log(
+            `💧 Liquid Swap token detected: ${asset} -> ${baseAsset}`
+          );
 
-        for (const symbol of symbols) {
-          if (exchange.markets[symbol]) {
-            try {
-              const ticker = await exchange.fetchTicker(symbol);
-              if (ticker && typeof ticker.last === "number") {
-                estUSDT = numAmount * ticker.last;
+          // For Liquid Swap tokens, treat them 1:1 with their base asset
+          if (baseAsset === "USDC") {
+            estUSDT = numAmount; // LDUSDC ≈ USDC ≈ 1 USD
+            console.log(
+              `💧 ${asset}: ${numAmount} ≈ $${estUSDT.toFixed(
+                2
+              )} (USDC equivalent)`
+            );
+          } else if (baseAsset === "BTC" || baseAsset === "ETH") {
+            // Get price for the base asset
+            const baseSymbol = `${baseAsset}/USDT`;
+            if (exchange.markets[baseSymbol]) {
+              try {
+                const ticker = await exchange.fetchTicker(baseSymbol);
+                if (ticker && typeof ticker.last === "number") {
+                  estUSDT = numAmount * ticker.last;
+                  console.log(
+                    `💧 ${asset}: ${numAmount} × $${
+                      ticker.last
+                    } = $${estUSDT.toFixed(2)} (${baseAsset} equivalent)`
+                  );
+                }
+              } catch (tickerError: any) {
                 console.log(
-                  `📈 ${asset}: ${numAmount} × $${
-                    ticker.last
-                  } = $${estUSDT.toFixed(2)} (via ${symbol})`
+                  `⚠️ Could not get ${baseAsset} price: ${tickerError.message}`
                 );
-                priceFound = true;
-                break;
               }
-            } catch (tickerError: any) {
-              console.log(
-                `⚠️ Ticker error for ${symbol}: ${tickerError.message}`
-              );
             }
-          } else {
-            console.log(`❌ Market not found: ${symbol}`);
           }
-        }
+        } else {
+          // Try multiple symbol formats for regular assets
+          const symbols = [`${asset}/USDT`, `${asset}USDT`];
+          let priceFound = false;
 
-        if (!priceFound) {
-          console.log(`❌ Could not find price for ${asset} in any format`);
-          // Still add to holdings with 0 USDT value for visibility
-          holdings.push({ asset, amount: numAmount, estUSDT: 0 });
+          for (const symbol of symbols) {
+            if (exchange.markets[symbol]) {
+              try {
+                const ticker = await exchange.fetchTicker(symbol);
+                if (ticker && typeof ticker.last === "number") {
+                  estUSDT = numAmount * ticker.last;
+                  console.log(
+                    `📈 ${asset}: ${numAmount} × $${
+                      ticker.last
+                    } = $${estUSDT.toFixed(2)} (via ${symbol})`
+                  );
+                  priceFound = true;
+                  break;
+                }
+              } catch (tickerError: any) {
+                console.log(
+                  `⚠️ Ticker error for ${symbol}: ${tickerError.message}`
+                );
+              }
+            } else {
+              console.log(`❌ Market not found: ${symbol}`);
+            }
+          }
+
+          if (!priceFound) {
+            console.log(`❌ Could not find price for ${asset} in any format`);
+          }
         }
       }
 
       totalUSDT += estUSDT;
-      if (estUSDT > 0.01) {
-        // Lower threshold
-        holdings.push({ asset, amount: numAmount, estUSDT });
+
+      // Add all holdings to the list, regardless of value
+      holdings.push({ asset, amount: numAmount, estUSDT });
+
+      if (estUSDT > 0) {
+        console.log(`✅ Added ${asset} to portfolio: $${estUSDT.toFixed(2)}`);
+      } else {
+        console.log(`⚠️ Added ${asset} with $0 value (price not found)`);
       }
     }
 

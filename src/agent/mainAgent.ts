@@ -3,18 +3,69 @@ import { prisma } from "../db/prisma.js";
 import { AgentState } from "./state.js";
 import { decrypt } from "../services/cryptoService.js";
 import { fetchPortfolio } from "../services/binanceService.js";
-import { getAdvancedAnalysis, getEmbedding, getUtilityResponse } from "../services/llmService.js";
+import {
+  getAdvancedAnalysis,
+  getEmbedding,
+  getUtilityResponse,
+} from "../services/llmService.js";
 
 // Helper function to detect portfolio-related requests
 function isPortfolioRequest(message: string): boolean {
   const portfolioKeywords = [
-    'portfolio', 'assets', 'holdings', 'balance', 'wallet',
-    'coins', 'tokens', 'positions', 'money', 'funds',
-    'show me', 'get my', 'fetch', 'check my', 'what do i have'
+    "portfolio",
+    "assets",
+    "holdings",
+    "balance",
+    "wallet",
+    "coins",
+    "tokens",
+    "positions",
+    "money",
+    "funds",
+    "show me",
+    "get my",
+    "fetch",
+    "check my",
+    "what do i have",
   ];
-  
+
   const lowerMessage = message.toLowerCase();
-  return portfolioKeywords.some(keyword => lowerMessage.includes(keyword));
+  return portfolioKeywords.some((keyword) => lowerMessage.includes(keyword));
+}
+
+// Helper function to detect emotional/feelings-related messages
+function isEmotionalMessage(message: string): boolean {
+  const emotionalKeywords = [
+    "feel",
+    "feeling",
+    "scared",
+    "afraid",
+    "worried",
+    "anxious",
+    "stress",
+    "panic",
+    "fear",
+    "fomo",
+    "excited",
+    "nervous",
+    "confident",
+    "doubt",
+    "regret",
+    "sad",
+    "happy",
+    "frustrated",
+    "angry",
+    "confused",
+    "lost",
+    "overwhelmed",
+    "depressed",
+    "hopeful",
+    "optimistic",
+    "pessimistic",
+  ];
+
+  const lowerMessage = message.toLowerCase();
+  return emotionalKeywords.some((keyword) => lowerMessage.includes(keyword));
 }
 
 // Format portfolio data into a clean table
@@ -27,10 +78,13 @@ function formatPortfolioTable(portfolioData: any): string {
   let table = `📊 *Portfolio Summary*\n\n`;
   table += `💰 *Total Value:* $${totalUSDT.toLocaleString()}\n\n`;
   table += `🏆 *Top Assets:*\n`;
-  
+
   topHoldings.forEach((holding: any, index: number) => {
-    const percentage = totalUSDT > 0 ? ((holding.estUSDT / totalUSDT) * 100).toFixed(1) : '0.0';
-    table += `${index + 1}. ${holding.asset}: ${holding.amount.toFixed(4)} ($${holding.estUSDT.toFixed(2)} - ${percentage}%)\n`;
+    const percentage =
+      totalUSDT > 0 ? ((holding.estUSDT / totalUSDT) * 100).toFixed(1) : "0.0";
+    table += `${index + 1}. ${holding.asset}: ${holding.amount.toFixed(
+      4
+    )} ($${holding.estUSDT.toFixed(2)} - ${percentage}%)\n`;
   });
 
   return table;
@@ -39,19 +93,23 @@ function formatPortfolioTable(portfolioData: any): string {
 // Generate portfolio analysis summary
 function generatePortfolioSummary(portfolioData: any): string {
   const { totalUSDT, topHoldings } = portfolioData.summary;
-  
+
   if (totalUSDT === 0) {
     return "Your portfolio appears to be empty or all positions are very small.";
   }
 
   const assetCount = topHoldings.length;
   const topAsset = topHoldings[0];
-  const diversification = assetCount > 5 ? "well-diversified" : 
-                         assetCount > 3 ? "moderately diversified" : "concentrated";
+  const diversification =
+    assetCount > 5
+      ? "well-diversified"
+      : assetCount > 3
+      ? "moderately diversified"
+      : "concentrated";
 
   let summary = `You have $${totalUSDT.toLocaleString()} across ${assetCount} assets. `;
   summary += `Your portfolio is ${diversification}`;
-  
+
   if (topAsset && topAsset.estUSDT > 0) {
     const topPercentage = ((topAsset.estUSDT / totalUSDT) * 100).toFixed(1);
     summary += `, with ${topAsset.asset} being your largest position at ${topPercentage}%.`;
@@ -134,11 +192,14 @@ async function analyze_message_intent(
   console.log(`📝 Current message: "${state.inputMessage}"`);
 
   const isPortfolioReq = isPortfolioRequest(state.inputMessage);
-  console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
+  const isEmotionalReq = isEmotionalMessage(state.inputMessage);
 
-  // Analyze user's psychological state
+  console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
+  console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
+
+  // Analyze user's psychological state with context
   const psychPrompt = `Analyze the emotional state of this crypto trader message. 
-Return JSON: {"emotion": "calm|anxious|excited|fearful|greedy|confused", "confidence": 1-10, "urgency": 1-10}
+Return JSON: {"emotion": "calm|anxious|excited|fearful|greedy|confused", "confidence": 1-10, "urgency": 1-10, "needs_support": ${isEmotionalReq}}
 
 Message: "${state.inputMessage}"
 Recent chat: ${JSON.stringify(state.chatHistory.slice(-3))}`;
@@ -146,9 +207,10 @@ Recent chat: ${JSON.stringify(state.chatHistory.slice(-3))}`;
   const psychAnalysis = await getUtilityResponse(psychPrompt);
   console.log(`🧠 Psychology analysis: ${psychAnalysis}`);
 
-  return { 
+  return {
     psychologicalAnalysis: psychAnalysis,
-    isPortfolioRequest: isPortfolioReq
+    isPortfolioRequest: isPortfolioReq,
+    isEmotionalMessage: isEmotionalReq,
   };
 }
 
@@ -200,14 +262,14 @@ async function generate_final_response(
   // Handle portfolio requests specifically
   if (state.isPortfolioRequest && state.portfolioData) {
     console.log(`� Generating portfolio-specific response`);
-    
+
     // First message: Portfolio table
     const portfolioTable = formatPortfolioTable(state.portfolioData);
     responses.push(portfolioTable);
 
     // Second message: Analysis and advice
     const portfolioSummary = generatePortfolioSummary(state.portfolioData);
-    
+
     const analysisPrompt = `As Psy-Trader, provide brief psychological insight based on this portfolio data.
 Portfolio: ${portfolioSummary}
 User emotion: ${state.psychologicalAnalysis}
@@ -222,11 +284,10 @@ Keep it conversational and supportive.`;
 
     const psychInsight = await getUtilityResponse(analysisPrompt);
     responses.push(`💭 ${psychInsight}`);
-
   } else {
     // Handle general trading psychology questions
     console.log(`🧠 Generating general psychology response`);
-    
+
     const generalPrompt = `As Psy-Trader, respond to this crypto trader's message.
 User message: "${state.inputMessage}"
 Psychology: ${state.psychologicalAnalysis}
@@ -244,8 +305,8 @@ No financial advice, focus on mindset and psychology.`;
   }
 
   // Join multiple responses with a separator
-  const finalResponse = responses.join('\n\n---\n\n');
-  
+  const finalResponse = responses.join("\n\n---\n\n");
+
   console.log(`✅ Generated ${responses.length} response parts`);
   console.log(`💭 Total response length: ${finalResponse.length} characters`);
 
@@ -262,6 +323,7 @@ const graph = new StateGraph<AgentState>({
     relevantKnowledge: null,
     finalResponse: null,
     isPortfolioRequest: null,
+    isEmotionalMessage: null,
   },
 })
   .addNode("retrieve_user_and_history", retrieve_user_and_history)
