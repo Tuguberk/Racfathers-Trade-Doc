@@ -9,6 +9,7 @@ interface PromptVariables {
   recentHistory?: string;
   chatHistory?: string;
   isEmotional?: string;
+  isCrisis?: string; // Crisis detection flag
   needsSupport?: boolean;
 }
 

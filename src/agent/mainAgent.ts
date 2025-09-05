@@ -19,6 +19,61 @@ import {
 } from "../services/redisService.js";
 import { sendWhatsAppNotification } from "../services/notificationService.js";
 
+// Helper function to detect crisis/suicide-related messages
+function isCrisisMessage(message: string): {
+  isCrisis: boolean;
+  triggerWords: string[];
+} {
+  const crisisKeywords = [
+    "jump from a bridge",
+    "jump from bridge",
+    "end it all",
+    "kill myself",
+    "suicide",
+    "suicidal",
+    "want to die",
+    "don't want to live",
+    "life is not worth",
+    "nothing to live for",
+    "better off dead",
+    "give up on life",
+    "can't go on",
+    "no point living",
+    "end my life",
+    "harm myself",
+    "hurt myself",
+    "lost everything",
+    "lost all",
+    "lost my money",
+    "financial ruin",
+    "can't take it anymore",
+    "hopeless",
+    "worthless",
+    "no way out",
+    "I am going to die",
+    "die",
+    "death",
+    "dead",
+    "kill",
+  ];
+
+  const lowerMessage = message.toLowerCase();
+  const triggerWords = crisisKeywords.filter((keyword) => {
+    // For single words, use word boundary check to avoid partial matches
+    if (!keyword.includes(" ")) {
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
+      return regex.test(lowerMessage);
+    }
+    // For phrases, use simple includes
+    return lowerMessage.includes(keyword);
+  });
+
+  return {
+    isCrisis: triggerWords.length > 0,
+    triggerWords: triggerWords,
+  };
+}
+
 // Helper function to detect portfolio-related requests
 function isPortfolioRequest(message: string): boolean {
   const portfolioKeywords = [
@@ -40,7 +95,15 @@ function isPortfolioRequest(message: string): boolean {
   ];
 
   const lowerMessage = message.toLowerCase();
-  return portfolioKeywords.some((keyword) => lowerMessage.includes(keyword));
+  return portfolioKeywords.some((keyword) => {
+    // For single words, use word boundary check to avoid partial matches
+    if (!keyword.includes(" ")) {
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
+      return regex.test(lowerMessage);
+    }
+    // For phrases, use simple includes
+    return lowerMessage.includes(keyword);
+  });
 }
 
 // Helper function to detect position-related requests
@@ -61,7 +124,15 @@ function isPositionRequest(message: string): boolean {
   ];
 
   const lowerMessage = message.toLowerCase();
-  return positionKeywords.some((keyword) => lowerMessage.includes(keyword));
+  return positionKeywords.some((keyword) => {
+    // For single words, use word boundary check to avoid partial matches
+    if (!keyword.includes(" ")) {
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
+      return regex.test(lowerMessage);
+    }
+    // For phrases, use simple includes
+    return lowerMessage.includes(keyword);
+  });
 }
 
 // Helper function to detect emotional/feelings-related messages
@@ -96,7 +167,15 @@ function isEmotionalMessage(message: string): boolean {
   ];
 
   const lowerMessage = message.toLowerCase();
-  return emotionalKeywords.some((keyword) => lowerMessage.includes(keyword));
+  return emotionalKeywords.some((keyword) => {
+    // For single words, use word boundary check to avoid partial matches
+    if (!keyword.includes(" ")) {
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
+      return regex.test(lowerMessage);
+    }
+    // For phrases, use simple includes
+    return lowerMessage.includes(keyword);
+  });
 }
 
 // Helper function to detect if user wants fresh portfolio data
@@ -119,7 +198,15 @@ function shouldFetchFreshPortfolio(message: string): boolean {
   ];
 
   const lowerMessage = message.toLowerCase();
-  return freshDataKeywords.some((keyword) => lowerMessage.includes(keyword));
+  return freshDataKeywords.some((keyword) => {
+    // For single words, use word boundary check to avoid partial matches
+    if (!keyword.includes(" ")) {
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
+      return regex.test(lowerMessage);
+    }
+    // For phrases, use simple includes
+    return lowerMessage.includes(keyword);
+  });
 }
 
 // Format portfolio data into a clean table
@@ -474,6 +561,32 @@ async function analyze_message_intent(
 
   const isPortfolioReq = isPortfolioRequest(state.inputMessage);
   const isEmotionalReq = isEmotionalMessage(state.inputMessage);
+  const crisisResult = isCrisisMessage(state.inputMessage);
+  const isCrisisReq = crisisResult.isCrisis;
+
+  console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
+  console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
+  console.log(`🚨 CRISIS MESSAGE DETECTED: ${isCrisisReq}`);
+
+  if (isCrisisReq) {
+    console.log(
+      `🚨 CRISIS TRIGGER WORDS: [${crisisResult.triggerWords.join(", ")}]`
+    );
+  }
+
+  // URGENT: Force psychological analysis for crisis messages regardless of portfolio request
+  if (isCrisisReq) {
+    console.log(
+      `🚨 CRISIS INTERVENTION: Forcing psychological analysis for urgent case`
+    );
+    return {
+      psychologicalAnalysis: "", // Will be filled in next step
+      isPortfolioRequest: isPortfolioReq,
+      isEmotionalMessage: true, // Force emotional processing
+      isCrisisMessage: true,
+      relevantKnowledge: "", // Will search crisis intervention knowledge
+    };
+  }
 
   console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
   console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
@@ -494,6 +607,7 @@ async function analyze_message_intent(
     inputMessage: state.inputMessage,
     recentHistory: JSON.stringify(state.chatHistory.slice(-5)),
     isEmotional: isEmotionalReq.toString(),
+    isCrisis: isCrisisReq.toString(), // Add crisis context
   });
 
   const psychAnalysis = await getUtilityResponse(psychPrompt);
@@ -503,6 +617,7 @@ async function analyze_message_intent(
     psychologicalAnalysis: psychAnalysis,
     isPortfolioRequest: isPortfolioReq,
     isEmotionalMessage: isEmotionalReq,
+    isCrisisMessage: isCrisisReq,
   };
 }
 
@@ -510,8 +625,16 @@ async function search_knowledge_base(
   state: AgentState
 ): Promise<Partial<AgentState>> {
   console.log(`📚 Step 5: Searching knowledge base`);
-  const queryText = `trading psychology advice for state: ${state.psychologicalAnalysis}`;
-  console.log(`🔍 Knowledge query: "${queryText}"`);
+
+  // Special crisis intervention query
+  let queryText;
+  if (state.isCrisisMessage) {
+    queryText = `crisis intervention suicide prevention mental health emergency support financial loss depression`;
+    console.log(`🚨 CRISIS QUERY: "${queryText}"`);
+  } else {
+    queryText = `trading psychology advice for state: ${state.psychologicalAnalysis}`;
+    console.log(`🔍 Knowledge query: "${queryText}"`);
+  }
 
   const embedding = await getEmbedding(queryText);
   console.log(`🧮 Generated embedding vector (length: ${embedding.length})`);
@@ -547,6 +670,47 @@ async function generate_final_response(
   state: AgentState
 ): Promise<Partial<AgentState>> {
   console.log(`✍️  Step 6: Generating final response`);
+  console.log(state);
+
+  // 🚨 URGENT CRISIS INTERVENTION
+  if (state.isCrisisMessage) {
+    console.log(`🚨 GENERATING CRISIS INTERVENTION RESPONSE`);
+
+    const crisisPrompt = await PromptService.getPrompt("crisis_intervention", {
+      inputMessage: state.inputMessage,
+      psychAnalysis: state.psychologicalAnalysis,
+      knowledge: state.relevantKnowledge,
+      isCrisis: "true",
+    });
+
+    const crisisResponse = await getAdvancedAnalysis(crisisPrompt);
+
+    // Get user information for crisis alert
+    const user = await prisma.user.findUnique({
+      where: { id: state.userId },
+      select: { whatsappNumber: true, id: true },
+    });
+
+    // Send urgent notification to admin/support team with user details
+    try {
+      const userInfo = user
+        ? `User: ${user.whatsappNumber} (ID: ${user.id})`
+        : `User ID: ${state.userId}`;
+      await sendWhatsAppNotification(
+        process.env.ADMIN_WHATSAPP_NUMBER || "whatsapp:+905516105835",
+        `🚨 CRISIS ALERT: User showing suicidal ideation. Immediate attention required.\n\n${userInfo}\n\nMessage: "${state.inputMessage}"\n\nPlease contact immediately!`
+      );
+      console.log(
+        `🚨 Crisis alert sent to admin for user: ${
+          user?.whatsappNumber || state.userId
+        }`
+      );
+    } catch (error) {
+      console.error(`❌ Failed to send crisis alert:`, error);
+    }
+
+    return { finalResponse: `🚨 ${crisisResponse}` };
+  }
   console.log(`📊 Is portfolio request: ${state.isPortfolioRequest}`);
 
   let responses: string[] = [];
@@ -579,7 +743,7 @@ async function generate_final_response(
     // Ensure the response is properly formatted
     const formattedInsight = psychInsight.trim();
     if (formattedInsight) {
-      responses.push(`💭 ${formattedInsight}`);
+      responses.push(`${formattedInsight}`);
     }
   } else {
     // Handle general trading psychology questions
@@ -649,6 +813,7 @@ const graph = new StateGraph<AgentState>({
     finalResponse: null,
     isPortfolioRequest: null,
     isEmotionalMessage: null,
+    isCrisisMessage: null,
     shouldFetchFreshPortfolio: null,
     hasCachedPortfolio: null,
   },
