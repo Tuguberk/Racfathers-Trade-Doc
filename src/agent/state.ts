@@ -8,4 +8,6 @@ export interface AgentState {
   finalResponse: string;
   isPortfolioRequest?: boolean;
   isEmotionalMessage?: boolean;
+  shouldFetchFreshPortfolio?: boolean;
+  hasCachedPortfolio?: boolean;
 }

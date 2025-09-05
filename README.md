@@ -2,6 +2,12 @@
 
 WhatsApp-based psychological trading support agent. Calm, supportive guidance synthesized from user chat history, live Binance portfolio data, and a vectorized knowledge base.
 
+# Cloudflared
+
+```
+cloudflared tunnel --url http://localhost:3000
+```
+
 ## Features
 
 - Secure onboarding via unique, single-use URL (5-minute TTL in Redis)
@@ -23,19 +29,19 @@ WhatsApp-based psychological trading support agent. Calm, supportive guidance sy
 
 ## Quick Start (Local)
 
-1) Prerequisites
+1. Prerequisites
 
 - Node.js 20+
 - Docker (for Postgres + pgvector + Redis)
 - OpenRouter API key
 
-2) Clone & install
+2. Clone & install
 
 ```bash
 npm install
 ```
 
-3) Environment
+3. Environment
 
 Copy `.env.example` to `.env` and fill values. Generate a 32-byte AES key (hex):
 
@@ -45,13 +51,13 @@ openssl rand -hex 32
 
 Set `OPENROUTER_API_KEY`, `AES_ENCRYPTION_KEY`, and Twilio env vars if you want outbound confirmation messages.
 
-4) Start Postgres (pgvector) and Redis
+4. Start Postgres (pgvector) and Redis
 
 ```bash
 docker compose up -d db redis
 ```
 
-5) Initialize Prisma
+5. Initialize Prisma
 
 ```bash
 npx prisma generate
@@ -64,13 +70,13 @@ Ensure pgvector is enabled in the DB:
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-6) Seed Knowledge Base
+6. Seed Knowledge Base
 
 ```bash
 npm run seed
 ```
 
-7) Run the server
+7. Run the server
 
 ```bash
 npm run dev
@@ -135,4 +141,3 @@ The app container runs `prisma migrate deploy` on start. Ensure migrations exist
 - Prisma cannot natively set pgvector values; seeding updates the embedding with a raw SQL statement using pgvector's string cast.
 - P/L analysis is an empathetic, qualitative summary (not exact realized P/L). The CCXT-based valuation estimates USDT value across holdings for context.
 - If embedding model dims differ, update `vector(1536)` in the schema accordingly and re-migrate.
-

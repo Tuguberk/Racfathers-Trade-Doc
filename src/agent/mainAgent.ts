@@ -9,6 +9,11 @@ import {
   getEmbedding,
   getUtilityResponse,
 } from "../services/llmService.js";
+import {
+  getCachedPortfolio,
+  setCachedPortfolio,
+  deleteCachedPortfolio,
+} from "../services/redisService.js";
 
 // Helper function to detect portfolio-related requests
 function isPortfolioRequest(message: string): boolean {
@@ -67,6 +72,29 @@ function isEmotionalMessage(message: string): boolean {
 
   const lowerMessage = message.toLowerCase();
   return emotionalKeywords.some((keyword) => lowerMessage.includes(keyword));
+}
+
+// Helper function to detect if user wants fresh portfolio data
+function shouldFetchFreshPortfolio(message: string): boolean {
+  const freshDataKeywords = [
+    "refresh",
+    "update",
+    "fetch",
+    "get latest",
+    "check current",
+    "reload",
+    "fresh",
+    "new",
+    "recent",
+    "current",
+    "now",
+    "updated",
+    "real-time",
+    "live",
+  ];
+
+  const lowerMessage = message.toLowerCase();
+  return freshDataKeywords.some((keyword) => lowerMessage.includes(keyword));
 }
 
 // Format portfolio data into a clean table
@@ -153,11 +181,50 @@ async function retrieve_user_and_history(
   };
 }
 
+async function check_cached_portfolio(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  console.log(
+    `🗄️  Step 2: Checking cached portfolio for user: ${state.userId}`
+  );
+
+  const shouldFetchFresh = shouldFetchFreshPortfolio(state.inputMessage);
+  console.log(`🔄 User wants fresh data: ${shouldFetchFresh}`);
+
+  if (shouldFetchFresh) {
+    console.log(`🔄 User requested fresh data, skipping cache`);
+    // Clear existing cache if user wants fresh data
+    await deleteCachedPortfolio(state.userId);
+    return {
+      shouldFetchFreshPortfolio: true,
+      hasCachedPortfolio: false,
+    };
+  }
+
+  // Check for cached portfolio
+  const cachedPortfolio = await getCachedPortfolio(state.userId);
+
+  if (cachedPortfolio) {
+    console.log(`✅ Found cached portfolio data (10min cache)`);
+    return {
+      portfolioData: cachedPortfolio,
+      shouldFetchFreshPortfolio: false,
+      hasCachedPortfolio: true,
+    };
+  }
+
+  console.log(`❌ No cached portfolio found, will fetch fresh data`);
+  return {
+    shouldFetchFreshPortfolio: true,
+    hasCachedPortfolio: false,
+  };
+}
+
 async function fetch_and_analyze_portfolio(
   state: AgentState
 ): Promise<Partial<AgentState>> {
   console.log(
-    `💰 Step 2: Fetching and analyzing portfolio for user: ${state.userId}`
+    `💰 Step 3: Fetching and analyzing portfolio for user: ${state.userId}`
   );
   const user = await prisma.user.findUnique({ where: { id: state.userId } });
   if (!user) {
@@ -179,6 +246,10 @@ async function fetch_and_analyze_portfolio(
       )}`
     );
 
+    // Cache the portfolio for 10 minutes (600 seconds)
+    console.log(`💾 Caching portfolio data for 10 minutes`);
+    await setCachedPortfolio(state.userId, portfolio, 600);
+
     // Save snapshot async (non-blocking)
     prisma.portfolioSnapshot
       .create({ data: { userId: user.id, data: portfolio as any } })
@@ -196,7 +267,7 @@ async function fetch_and_analyze_portfolio(
 async function analyze_message_intent(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log(`🔍 Step 3: Analyzing message intent`);
+  console.log(`🔍 Step 4: Analyzing message intent`);
   console.log(`📝 Current message: "${state.inputMessage}"`);
 
   const isPortfolioReq = isPortfolioRequest(state.inputMessage);
@@ -225,7 +296,7 @@ async function analyze_message_intent(
 async function search_knowledge_base(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log(`📚 Step 4: Searching knowledge base`);
+  console.log(`📚 Step 5: Searching knowledge base`);
   const queryText = `trading psychology advice for state: ${state.psychologicalAnalysis}`;
   console.log(`🔍 Knowledge query: "${queryText}"`);
 
@@ -262,7 +333,7 @@ async function search_knowledge_base(
 async function generate_final_response(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log(`✍️  Step 5: Generating final response`);
+  console.log(`✍️  Step 6: Generating final response`);
   console.log(`📊 Is portfolio request: ${state.isPortfolioRequest}`);
 
   let responses: string[] = [];
@@ -271,9 +342,14 @@ async function generate_final_response(
   if (state.isPortfolioRequest && state.portfolioData) {
     console.log(`📈 Generating portfolio-specific response`);
 
+    // Add cache indicator to portfolio display
+    const cacheIndicator = state.hasCachedPortfolio
+      ? " (📋 Cached)"
+      : " (🔄 Live)";
+
     // First message: Portfolio table
     const portfolioTable = formatPortfolioTable(state.portfolioData);
-    responses.push(portfolioTable);
+    responses.push(portfolioTable + cacheIndicator);
 
     // Second message: Analysis and advice
     const portfolioSummary = generatePortfolioSummary(state.portfolioData);
@@ -332,6 +408,14 @@ async function generate_final_response(
   return { finalResponse };
 }
 
+// Conditional function to decide whether to fetch fresh portfolio or use cache
+function shouldFetchPortfolioCondition(state: AgentState): string {
+  if (state.shouldFetchFreshPortfolio) {
+    return "fetch_and_analyze_portfolio";
+  }
+  return "analyze_message_intent";
+}
+
 const graph = new StateGraph<AgentState>({
   channels: {
     userId: null,
@@ -343,21 +427,32 @@ const graph = new StateGraph<AgentState>({
     finalResponse: null,
     isPortfolioRequest: null,
     isEmotionalMessage: null,
+    shouldFetchFreshPortfolio: null,
+    hasCachedPortfolio: null,
   },
 })
   .addNode("retrieve_user_and_history", retrieve_user_and_history)
+  .addNode("check_cached_portfolio", check_cached_portfolio)
   .addNode("fetch_and_analyze_portfolio", fetch_and_analyze_portfolio)
   .addNode("analyze_message_intent", analyze_message_intent)
   .addNode("search_knowledge_base", search_knowledge_base)
   .addNode("generate_final_response", generate_final_response)
   .addEdge("__start__", "retrieve_user_and_history")
-  .addEdge("retrieve_user_and_history", "fetch_and_analyze_portfolio")
+  .addEdge("retrieve_user_and_history", "check_cached_portfolio")
+  .addConditionalEdges(
+    "check_cached_portfolio",
+    shouldFetchPortfolioCondition,
+    {
+      fetch_and_analyze_portfolio: "fetch_and_analyze_portfolio",
+      analyze_message_intent: "analyze_message_intent",
+    }
+  )
   .addEdge("fetch_and_analyze_portfolio", "analyze_message_intent")
   .addEdge("analyze_message_intent", "search_knowledge_base")
   .addEdge("search_knowledge_base", "generate_final_response")
   .addEdge("generate_final_response", "__end__");
 
-console.log(`🚀 AI Agent graph compiled successfully with 5 nodes`);
+console.log(`🚀 AI Agent graph compiled successfully with 6 nodes`);
 
 // Compile the graph
 export const mainAgent = graph.compile();
