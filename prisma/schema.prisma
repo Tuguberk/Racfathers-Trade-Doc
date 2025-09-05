@@ -13,12 +13,26 @@ generator client {
 model User {
   id                 String              @id @default(cuid())
   whatsappNumber     String              @unique
-  encryptedApiKey    String
-  encryptedApiSecret String
   createdAt          DateTime            @default(now())
   messages           ChatMessage[]
   portfolioSnapshots PortfolioSnapshot[]
   walletAddresses    WalletAddress[]
+  exchangeKeys       ExchangeApiKey[]
+}
+
+model ExchangeApiKey {
+  id                  String   @id @default(cuid())
+  userId              String
+  exchange            String // "binance", "binance-futures", "bybit", "kraken"
+  encryptedApiKey     String
+  encryptedApiSecret  String
+  encryptedPassphrase String? // For exchanges that require passphrase
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exchange]) // One API key per exchange per user
 }
 
 model WalletAddress {

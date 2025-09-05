@@ -1,8 +1,7 @@
 import { StateGraph } from "@langchain/langgraph";
 import { prisma } from "../db/prisma.js";
 import { AgentState } from "./state.js";
-import { decrypt } from "../services/cryptoService.js";
-import { fetchPortfolio } from "../services/binanceService.js";
+import { fetchMultiExchangePortfolio } from "../services/multiExchangeService.js";
 import { PromptService } from "../services/promptService.js";
 import {
   getAdvancedAnalysis,
@@ -100,31 +99,44 @@ function shouldFetchFreshPortfolio(message: string): boolean {
 
 // Format portfolio data into a clean table
 function formatPortfolioTable(portfolioData: any): string {
-  if (
-    !portfolioData?.summary?.topHoldings?.length &&
-    !portfolioData?.walletPortfolios?.length
-  ) {
-    return "📊 *Portfolio Summary*\n\nNo assets found or all balances are zero.";
-  }
+  console.log(
+    "🔍 Formatting portfolio table:",
+    JSON.stringify(portfolioData, null, 2)
+  );
 
-  const { totalUSDT, topHoldings } = portfolioData.summary || {
-    totalUSDT: 0,
-    topHoldings: [],
-  };
-  const { walletPortfolios = [], combinedSummary } = portfolioData;
+  // Check for new multi-exchange structure
+  const {
+    exchanges = [],
+    walletPortfolios = [],
+    combinedSummary,
+  } = portfolioData;
 
-  let table = `📊 *Portfolio Summary*\n`;
-  table += `💰 Total: $${(
-    combinedSummary?.totalUSDT || totalUSDT
-  ).toLocaleString()}\n\n`;
+  // If we have combinedSummary (new structure), use it
+  if (combinedSummary && combinedSummary.totalUSDT > 0) {
+    let table = `📊 *Portfolio Summary*\n`;
+    table += `💰 Total: $${combinedSummary.totalUSDT.toLocaleString()}\n\n`;
 
-  // Show combined portfolio breakdown if we have wallet data
-  if (combinedSummary && combinedSummary.walletUSDT > 0) {
-    table += `🏦 Binance: $${combinedSummary.binanceUSDT.toLocaleString()}\n`;
-    table += `🔗 Wallets: $${combinedSummary.walletUSDT.toLocaleString()}\n\n`;
+    // Show exchange breakdown
+    if (combinedSummary.exchangesTotalUSDT > 0) {
+      table += `🏦 Exchanges: $${combinedSummary.exchangesTotalUSDT.toLocaleString()}\n`;
 
-    // Show top combined holdings from both Binance and wallets
-    table += `*Top Holdings (All Sources):*\n`;
+      // Show individual exchange balances
+      exchanges.forEach((exchange: any) => {
+        if (exchange.totalUSDT > 0) {
+          table += `   • ${
+            exchange.exchange
+          }: $${exchange.totalUSDT.toLocaleString()}\n`;
+        }
+      });
+    }
+
+    if (combinedSummary.walletUSDT > 0) {
+      table += `🔗 Wallets: $${combinedSummary.walletUSDT.toLocaleString()}\n`;
+    }
+
+    table += `\n*Top Holdings:*\n`;
+
+    // Show combined holdings from all sources
     const displayHoldings = combinedSummary.topCombinedHoldings.slice(0, 8);
 
     displayHoldings.forEach((holding: any, index: number) => {
@@ -133,18 +145,41 @@ function formatPortfolioTable(portfolioData: any): string {
           ? ((holding.estUSDT / combinedSummary.totalUSDT) * 100).toFixed(1)
           : "0.0";
 
-      const sourceIcon = holding.source === "binance" ? "🏦" : "🔗";
-      const chainInfo = holding.chain
-        ? ` (${holding.chain.toUpperCase()})`
-        : "";
+      let sourceIcon = "🏦";
+      let sourceInfo = "";
+
+      if (holding.source === "exchange") {
+        sourceIcon = "🏦";
+        sourceInfo = ` (${holding.exchange})`;
+      } else if (holding.source === "wallet") {
+        sourceIcon = "🔗";
+        sourceInfo = holding.chain ? ` (${holding.chain})` : "";
+      }
 
       table += `${index + 1}. ${sourceIcon} ${
         holding.asset
-      }${chainInfo}: $${holding.estUSDT.toFixed(0)} (${percentage}%)\n`;
+      }${sourceInfo}: $${holding.estUSDT.toFixed(0)} (${percentage}%)\n`;
     });
-  } else {
-    // Show only Binance holdings if no wallet data
-    table += `*Binance Holdings:*\n`;
+
+    return table;
+  }
+
+  // Fallback: Check old structure or empty portfolio
+  const { totalUSDT, topHoldings } = portfolioData.summary || {
+    totalUSDT: 0,
+    topHoldings: [],
+  };
+
+  if (totalUSDT === 0 && exchanges.length === 0) {
+    return "📊 *Portfolio Summary*\n\nNo assets found or all balances are zero.";
+  }
+
+  // Handle old structure if needed
+  let table = `📊 *Portfolio Summary*\n`;
+  table += `💰 Total: $${totalUSDT.toLocaleString()}\n\n`;
+
+  if (topHoldings && topHoldings.length > 0) {
+    table += `*Holdings:*\n`;
     const displayHoldings = topHoldings.slice(0, 6);
 
     displayHoldings.forEach((holding: any, index: number) => {
@@ -158,61 +193,44 @@ function formatPortfolioTable(portfolioData: any): string {
     });
   }
 
-  // Add wallet-specific details if available
-  if (walletPortfolios && walletPortfolios.length > 0) {
-    table += `\n*Wallet Details:*\n`;
-
-    walletPortfolios.forEach((wallet: any, walletIndex: number) => {
-      if (wallet.totalUSDValue > 0) {
-        table += `\n📱 Wallet ${
-          walletIndex + 1
-        }: $${wallet.totalUSDValue.toLocaleString()}\n`;
-        table += `   Address: ${wallet.address.slice(
-          0,
-          6
-        )}...${wallet.address.slice(-4)}\n`;
-
-        // Show top tokens for this wallet
-        const topTokens = wallet.tokens
-          .filter((token: any) => token.usd_value > 1) // Only show tokens worth > $1
-          .slice(0, 3);
-
-        if (topTokens.length > 0) {
-          table += `   💰 Tokens: `;
-          table +=
-            topTokens
-              .map(
-                (token: any) =>
-                  `${token.symbol} ($${token.usd_value.toFixed(0)})`
-              )
-              .join(", ") + "\n";
-        }
-
-        // Show NFT count if any
-        if (wallet.nfts && wallet.nfts.length > 0) {
-          table += `   🖼️ NFTs: ${wallet.nfts.length} items`;
-
-          // Show names of first few NFTs if available
-          const nftNames = wallet.nfts
-            .slice(0, 2)
-            .map((nft: any) => nft.name || nft.token_id)
-            .filter(Boolean);
-
-          if (nftNames.length > 0) {
-            table += ` (${nftNames.join(", ")})`;
-          }
-          table += "\n";
-        }
-      }
-    });
-  }
-
   return table;
 }
 
 // Generate portfolio analysis summary
 function generatePortfolioSummary(portfolioData: any): string {
-  const { totalUSDT, topHoldings } = portfolioData.summary;
+  // Use new multi-exchange structure
+  const { combinedSummary, exchanges = [] } = portfolioData;
+
+  if (combinedSummary && combinedSummary.totalUSDT > 0) {
+    const totalUSDT = combinedSummary.totalUSDT;
+    const exchangeCount = exchanges.filter(
+      (ex: any) => ex.totalUSDT > 0
+    ).length;
+    const topHolding = combinedSummary.topCombinedHoldings?.[0];
+
+    let summary = `You have $${totalUSDT.toLocaleString()} across ${exchangeCount} exchange(s)`;
+
+    if (combinedSummary.topCombinedHoldings.length > 5) {
+      summary += " with a well-diversified portfolio";
+    } else if (combinedSummary.topCombinedHoldings.length > 3) {
+      summary += " with a moderately diversified portfolio";
+    } else {
+      summary += " with a concentrated portfolio";
+    }
+
+    if (topHolding && topHolding.estUSDT > 0) {
+      const topPercentage = ((topHolding.estUSDT / totalUSDT) * 100).toFixed(1);
+      summary += `, with ${topHolding.asset} being your largest position at ${topPercentage}%.`;
+    }
+
+    return summary;
+  }
+
+  // Fallback for old structure or empty portfolio
+  const { totalUSDT, topHoldings } = portfolioData.summary || {
+    totalUSDT: 0,
+    topHoldings: [],
+  };
 
   if (totalUSDT === 0) {
     return "Your portfolio appears to be empty or all positions are very small.";
@@ -319,41 +337,43 @@ async function fetch_and_analyze_portfolio(
   // Send immediate notification to user that portfolio fetching has started
   await sendWhatsAppNotification(
     user.whatsappNumber,
-    "🔄 Fetching your portfolio data from Binance and blockchain wallets... This may take a few moments."
+    "🔄 Fetching your portfolio data from all exchanges and blockchain wallets... This may take a few moments."
   );
 
-  console.log(`🔐 Decrypting API credentials for Binance`);
-  const apiKey = decrypt(user.encryptedApiKey);
-  const apiSecret = decrypt(user.encryptedApiSecret);
-
   try {
-    const portfolio = await fetchPortfolio(
-      apiKey,
-      apiSecret,
-      user.whatsappNumber
-    );
-    console.log(`📊 Portfolio data retrieved successfully`);
+    console.log(`🏦 Fetching multi-exchange portfolio for user: ${user.id}`);
+    const portfolio = await fetchMultiExchangePortfolio(user.id);
+    console.log(`📊 Multi-exchange portfolio data retrieved successfully`);
     console.log(
-      `💼 Portfolio summary: ${JSON.stringify(
-        portfolio?.summary || {},
-        null,
-        2
-      )}`
+      `💼 Portfolio summary: Total exchanges: ${portfolio.exchanges.length}, Total USD: $${portfolio.combinedSummary.totalUSDT}`
     );
+
+    // Log exchange breakdown
+    if (portfolio.exchanges?.length > 0) {
+      portfolio.exchanges.forEach((exchange) => {
+        console.log(
+          `🏦 ${exchange.exchange}: $${exchange.totalUSDT.toLocaleString()} (${
+            exchange.holdings.length
+          } assets)`
+        );
+        if (exchange.error) {
+          console.warn(`⚠️ ${exchange.exchange} error: ${exchange.error}`);
+        }
+      });
+    }
 
     // Log wallet portfolio summary if available
     if (portfolio.walletPortfolios?.length > 0) {
       console.log(
-        `🔗 Wallet portfolios: ${portfolio.walletPortfolios.length} wallets`
-      );
-      console.log(
-        `💰 Combined portfolio value: $${portfolio.combinedSummary.totalUSDT}`
+        `🔗 Wallet portfolios: ${
+          portfolio.walletPortfolios.length
+        } wallets, $${portfolio.combinedSummary.walletUSDT.toLocaleString()}`
       );
     }
 
     // Cache the portfolio for 10 minutes (600 seconds)
-    console.log(`💾 Caching portfolio data for 10 minutes`);
-    await setCachedPortfolio(state.userId, portfolio, 600);
+    console.log(`💾 Caching multi-exchange portfolio data for 10 minutes`);
+    await setCachedPortfolio(user.id, portfolio, 600);
 
     // Save snapshot async (non-blocking)
     prisma.portfolioSnapshot

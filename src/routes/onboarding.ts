@@ -81,6 +81,104 @@ function page(html: string) {
       margin: 24px 0;
       border: 1px solid #e2e8f0;
     }
+    .exchange-section {
+      background: #fdfefe;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+      border: 1px solid #e2e8f0;
+    }
+    .exchange-section h3 {
+      margin: 0 0 16px 0;
+      color: #1e293b;
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .exchange-icon {
+      width: 20px;
+      height: 20px;
+      background: #f59e0b;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .exchange-card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .exchange-header {
+      display: flex;
+      justify-content: between;
+      align-items: center;
+      padding: 16px 20px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .exchange-header h4 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .exchange-toggle {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 24px;
+      margin-left: auto;
+    }
+    .exchange-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #cbd5e1;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+    .exchange-toggle input:checked + .toggle-slider {
+      background-color: #4f46e5;
+    }
+    .exchange-toggle input:checked + .toggle-slider:before {
+      transform: translateX(26px);
+    }
+    .exchange-inputs {
+      padding: 20px;
+      display: none;
+    }
+    .exchange-inputs.active {
+      display: block;
+    }
+    .wallet-section {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+      border: 1px solid #e2e8f0;
+    }
     .wallet-section h3 {
       margin: 0 0 16px 0;
       color: #1e293b;
@@ -512,14 +610,94 @@ router.get("/onboard/:token", async (req, res) => {
   res.send(
     page(`
     <form method="POST">
-      <div class="form-group">
-        <label>🔑 Binance API Key</label>
-        <input name="apiKey" required placeholder="Enter your Binance API Key"/>
-      </div>
       
-      <div class="form-group">
-        <label>🔐 Binance Secret Key</label>
-        <input name="apiSecret" required placeholder="Enter your Binance Secret Key"/>
+      <div class="exchange-section">
+        <h3><span class="exchange-icon">🏦</span>Exchange API Keys (Optional)</h3>
+        <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Add API keys from your exchanges to track all your trading assets. All keys are optional - add only the exchanges you use.</p>
+        
+        <!-- Binance Spot -->
+        <div class="exchange-card">
+          <div class="exchange-header">
+            <h4>🟡 Binance Spot</h4>
+            <label class="exchange-toggle">
+              <input type="checkbox" id="binance-toggle" onchange="toggleExchange('binance')">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="binance-inputs" class="exchange-inputs" style="display: none;">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="binance-apiKey" placeholder="Enter your Binance API Key"/>
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="binance-apiSecret" placeholder="Enter your Binance Secret Key"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Binance Futures -->
+        <div class="exchange-card">
+          <div class="exchange-header">
+            <h4>🟠 Binance Futures</h4>
+            <label class="exchange-toggle">
+              <input type="checkbox" id="binance-futures-toggle" onchange="toggleExchange('binance-futures')">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="binance-futures-inputs" class="exchange-inputs" style="display: none;">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="binance-futures-apiKey" placeholder="Enter your Binance Futures API Key"/>
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="binance-futures-apiSecret" placeholder="Enter your Binance Futures Secret Key"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bybit -->
+        <div class="exchange-card">
+          <div class="exchange-header">
+            <h4>� Bybit</h4>
+            <label class="exchange-toggle">
+              <input type="checkbox" id="bybit-toggle" onchange="toggleExchange('bybit')">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="bybit-inputs" class="exchange-inputs" style="display: none;">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="bybit-apiKey" placeholder="Enter your Bybit API Key"/>
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="bybit-apiSecret" placeholder="Enter your Bybit Secret Key"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kraken -->
+        <div class="exchange-card">
+          <div class="exchange-header">
+            <h4>🔴 Kraken</h4>
+            <label class="exchange-toggle">
+              <input type="checkbox" id="kraken-toggle" onchange="toggleExchange('kraken')">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="kraken-inputs" class="exchange-inputs" style="display: none;">
+            <div class="form-group">
+              <label>API Key</label>
+              <input name="kraken-apiKey" placeholder="Enter your Kraken API Key"/>
+            </div>
+            <div class="form-group">
+              <label>Secret Key</label>
+              <input name="kraken-apiSecret" placeholder="Enter your Kraken Private Key"/>
+            </div>
+          </div>
+        </div>
       </div>
       
       <div class="wallet-section">
@@ -544,6 +722,22 @@ router.get("/onboard/:token", async (req, res) => {
     
     <script>
       let walletCount = 0;
+      
+      function toggleExchange(exchangeName) {
+        const toggle = document.getElementById(exchangeName + '-toggle');
+        const inputs = document.getElementById(exchangeName + '-inputs');
+        
+        if (toggle.checked) {
+          inputs.style.display = 'block';
+          inputs.classList.add('active');
+        } else {
+          inputs.style.display = 'none';
+          inputs.classList.remove('active');
+          // Clear inputs when disabled
+          const inputElements = inputs.querySelectorAll('input');
+          inputElements.forEach(input => input.value = '');
+        }
+      }
       
       function addWalletInput() {
         walletCount++;
@@ -622,23 +816,44 @@ router.post("/onboard/:token", async (req, res) => {
     );
   }
 
-  const apiKey = String((req.body as any)?.apiKey || "");
-  const apiSecret = String((req.body as any)?.apiSecret || "");
-  if (!apiKey || !apiSecret) {
-    console.log(`⚠️  Incomplete API credentials for: ${number}`);
-    return res.status(400).send(
-      page(`
-        <div style="text-align: center; padding: 40px 20px;">
-          <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
-          <h3 style="color: #ef4444; margin-bottom: 12px;">Incomplete Information</h3>
-          <p style="color: #64748b; margin-bottom: 24px;">Both Binance API Key and Secret Key are required to continue.</p>
-          <div style="background: #fef3cd; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; color: #92400e;">
-            💡 Please go back and fill in both API credentials.
-          </div>
-        </div>
-      `)
-    );
+  // Parse exchange API keys
+  const exchangeData = [];
+  const exchanges = ["binance", "binance-futures", "bybit", "kraken"];
+
+  // Legacy support - check if old API key format is used
+  const legacyApiKey = String((req.body as any)?.apiKey || "").trim();
+  const legacyApiSecret = String((req.body as any)?.apiSecret || "").trim();
+
+  if (legacyApiKey && legacyApiSecret) {
+    // Legacy Binance format
+    exchangeData.push({
+      exchange: "binance",
+      apiKey: legacyApiKey,
+      apiSecret: legacyApiSecret,
+    });
+  } else {
+    // New multi-exchange format
+    for (const exchange of exchanges) {
+      const apiKey = String(
+        (req.body as any)?.[`${exchange}-apiKey`] || ""
+      ).trim();
+      const apiSecret = String(
+        (req.body as any)?.[`${exchange}-apiSecret`] || ""
+      ).trim();
+
+      if (apiKey && apiSecret) {
+        exchangeData.push({
+          exchange,
+          apiKey,
+          apiSecret,
+        });
+      }
+    }
   }
+
+  console.log(
+    `🏦 Found ${exchangeData.length} exchange API key sets for: ${number}`
+  );
 
   // Process wallet addresses
   const walletAddresses = (req.body as any)?.walletAddress || [];
@@ -688,24 +903,40 @@ router.post("/onboard/:token", async (req, res) => {
     );
   }
 
-  console.log(`🔐 Encrypting API credentials for: ${number}`);
-  const encryptedApiKey = encrypt(apiKey);
-  const encryptedApiSecret = encrypt(apiSecret);
+  // Create or update user (no legacy API fields)
+  console.log(`👤 Saving user to database: ${number}`);
 
-  // Create user record or update if already exists
-  console.log(`💾 Saving user to database: ${number}`);
   const user = await prisma.user.upsert({
     where: { whatsappNumber: number },
-    create: {
-      whatsappNumber: number,
-      encryptedApiKey,
-      encryptedApiSecret,
-    },
-    update: {
-      encryptedApiKey,
-      encryptedApiSecret,
-    },
+    create: { whatsappNumber: number },
+    update: {},
   });
+
+  // Save exchange API keys
+  if (exchangeData.length > 0) {
+    console.log(
+      `🏦 Saving ${exchangeData.length} exchange API keys for: ${number}`
+    );
+
+    // Delete existing exchange keys for this user
+    await prisma.exchangeApiKey.deleteMany({
+      where: { userId: user.id },
+    });
+
+    // Create new exchange API keys for all provided exchanges
+    if (exchangeData.length > 0) {
+      await prisma.exchangeApiKey.createMany({
+        data: exchangeData.map((exchange) => ({
+          userId: user.id,
+          exchange: exchange.exchange,
+          encryptedApiKey: encrypt(exchange.apiKey),
+          encryptedApiSecret: encrypt(exchange.apiSecret),
+          encryptedPassphrase: null, // Can be added later for exchanges that need it
+          isActive: true,
+        })),
+      });
+    }
+  }
 
   // Save wallet addresses
   if (validWallets.length > 0) {
@@ -766,7 +997,7 @@ router.post("/onboard/:token", async (req, res) => {
       `<div style="text-align: center; padding: 40px 20px;">
         <div style="font-size: 64px; margin-bottom: 24px;">🎉</div>
         <h3 style="color: #10b981; margin-bottom: 16px;">Setup Complete!</h3>
-        <p style="color: #64748b; margin-bottom: 24px;">Your Binance API keys${walletMessage} have been saved securely.</p>
+          <p style="color: #64748b; margin-bottom: 24px;">Your exchange API keys${walletMessage} have been saved securely.</p>
         <div style="background: #ecfdf5; border: 1px solid #d1fae5; border-radius: 12px; padding: 24px; margin: 24px 0;">
           <div style="font-size: 24px; margin-bottom: 12px;">✅</div>
           <p style="color: #065f46; font-weight: 600; margin: 0;">All data encrypted and secure</p>
@@ -799,6 +1030,7 @@ router.post("/change-api/:token", async (req, res) => {
 
   const apiKey = String((req.body as any)?.apiKey || "");
   const apiSecret = String((req.body as any)?.apiSecret || "");
+  const exchange = String((req.body as any)?.exchange || "binance");
   if (!apiKey || !apiSecret) {
     console.log(`⚠️  Incomplete API credentials for API change: ${number}`);
     return res.status(400).send(
@@ -812,16 +1044,37 @@ router.post("/change-api/:token", async (req, res) => {
     );
   }
 
-  console.log(`🔐 Updating API credentials for: ${number}`);
+  console.log(`🔐 Updating API credentials for: ${number} (${exchange})`);
   const encryptedApiKey = encrypt(apiKey);
   const encryptedApiSecret = encrypt(apiSecret);
 
-  // Update user's API keys
-  await prisma.user.update({
+  // Upsert into ExchangeApiKey for the selected exchange
+  const userForUpdate = await prisma.user.findUnique({
     where: { whatsappNumber: number },
-    data: {
+  });
+  if (!userForUpdate) {
+    return res
+      .status(404)
+      .send(
+        page(
+          `<div style="text-align: center; padding: 40px 20px;">User not found.</div>`
+        )
+      );
+  }
+
+  await prisma.exchangeApiKey.upsert({
+    where: { userId_exchange: { userId: userForUpdate.id, exchange } },
+    create: {
+      userId: userForUpdate.id,
+      exchange,
       encryptedApiKey,
       encryptedApiSecret,
+      isActive: true,
+    },
+    update: {
+      encryptedApiKey,
+      encryptedApiSecret,
+      isActive: true,
     },
   });
 
@@ -840,7 +1093,7 @@ router.post("/change-api/:token", async (req, res) => {
       await client.messages.create({
         from: config.twilio.from,
         to: number,
-        body: "🔄 Your Binance API keys have been updated successfully!",
+        body: "🔄 Your exchange API keys have been updated successfully!",
       });
       console.log(`✅ API update confirmation sent successfully`);
     }
@@ -854,7 +1107,7 @@ router.post("/change-api/:token", async (req, res) => {
     <div style="text-align: center; padding: 40px 20px;">
       <div style="font-size: 64px; margin-bottom: 24px;">🎉</div>
       <h3 style="color: #10b981; margin-bottom: 16px;">API Keys Updated!</h3>
-      <p style="color: #64748b; margin-bottom: 24px;">Your Binance API credentials have been updated and encrypted securely.</p>
+  <p style="color: #64748b; margin-bottom: 24px;">Your exchange API credentials have been updated and encrypted securely.</p>
       <div style="background: #ecfdf5; border: 1px solid #d1fae5; border-radius: 12px; padding: 24px; margin: 24px 0;">
         <div style="font-size: 24px; margin-bottom: 12px;">✅</div>
         <p style="color: #065f46; font-weight: 600; margin: 0;">New API keys active</p>
