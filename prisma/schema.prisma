@@ -23,7 +23,7 @@ model User {
 model ChatMessage {
   id        String   @id @default(cuid())
   content   String
-  sender    String   // "USER" or "AGENT"
+  sender    String // "USER" or "AGENT"
   timestamp DateTime @default(now())
   userId    String
   user      User     @relation(fields: [userId], references: [id])
@@ -32,13 +32,13 @@ model ChatMessage {
 model PortfolioSnapshot {
   id        String   @id @default(cuid())
   timestamp DateTime @default(now())
-  data      Json     // JSON blob of portfolio data from CCXT
+  data      Json // JSON blob of portfolio data from CCXT
   userId    String
   user      User     @relation(fields: [userId], references: [id])
 }
 
 model KnowledgeArticle {
-  id        String    @id @default(cuid())
+  id        String                       @id @default(cuid())
   content   String
   author    String?
   source    String?
@@ -46,3 +46,14 @@ model KnowledgeArticle {
   embedding Unsupported("vector(1536)")?
 }
 
+model AgentPrompt {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g., "portfolio_quote", "emotional_support", "general_response"
+  title       String // Human-readable title
+  description String? // What this prompt is used for
+  content     String // The actual prompt text
+  category    String // "portfolio", "emotional", "general", "knowledge"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

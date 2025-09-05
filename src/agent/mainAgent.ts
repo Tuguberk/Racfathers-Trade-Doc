@@ -3,6 +3,7 @@ import { prisma } from "../db/prisma.js";
 import { AgentState } from "./state.js";
 import { decrypt } from "../services/cryptoService.js";
 import { fetchPortfolio } from "../services/binanceService.js";
+import { PromptService } from "../services/promptService.js";
 import {
   getAdvancedAnalysis,
   getEmbedding,
@@ -198,11 +199,11 @@ async function analyze_message_intent(
   console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
 
   // Analyze user's psychological state with context
-  const psychPrompt = `Analyze the emotional state of this crypto trader message. 
-Return JSON: {"emotion": "calm|anxious|excited|fearful|greedy|confused", "confidence": 1-10, "urgency": 1-10, "needs_support": ${isEmotionalReq}}
-
-Message: "${state.inputMessage}"
-Recent chat: ${JSON.stringify(state.chatHistory.slice(-3))}`;
+  const psychPrompt = await PromptService.getPrompt("psychology_analysis", {
+    message: state.inputMessage,
+    chatHistory: JSON.stringify(state.chatHistory.slice(-3)),
+    isEmotional: isEmotionalReq.toString(),
+  });
 
   const psychAnalysis = await getUtilityResponse(psychPrompt);
   console.log(`🧠 Psychology analysis: ${psychAnalysis}`);
@@ -270,17 +271,11 @@ async function generate_final_response(
     // Second message: Analysis and advice
     const portfolioSummary = generatePortfolioSummary(state.portfolioData);
 
-    const analysisPrompt = `As Psy-Trader, provide brief psychological insight based on this portfolio data.
-Portfolio: ${portfolioSummary}
-User emotion: ${state.psychologicalAnalysis}
-Relevant wisdom: ${state.relevantKnowledge}
-
-Write 2-3 sentences focusing on:
-- Emotional state related to their portfolio
-- One key psychological insight
-- A brief, actionable suggestion
-
-Keep it conversational and supportive.`;
+    const analysisPrompt = await PromptService.getPrompt("portfolio_analysis", {
+      portfolioSummary,
+      psychAnalysis: state.psychologicalAnalysis,
+      knowledge: state.relevantKnowledge,
+    });
 
     const psychInsight = await getUtilityResponse(analysisPrompt);
     responses.push(`💭 ${psychInsight}`);
@@ -288,17 +283,11 @@ Keep it conversational and supportive.`;
     // Handle general trading psychology questions
     console.log(`🧠 Generating general psychology response`);
 
-    const generalPrompt = `As Psy-Trader, respond to this crypto trader's message.
-User message: "${state.inputMessage}"
-Psychology: ${state.psychologicalAnalysis}
-Knowledge: ${state.relevantKnowledge}
-
-Provide a concise, empathetic response (2-3 sentences) that:
-- Acknowledges their emotional state
-- Offers practical psychological advice
-- Keeps them grounded
-
-No financial advice, focus on mindset and psychology.`;
+    const generalPrompt = await PromptService.getPrompt("emotional_support", {
+      inputMessage: state.inputMessage,
+      psychAnalysis: state.psychologicalAnalysis,
+      knowledge: state.relevantKnowledge,
+    });
 
     const response = await getUtilityResponse(generalPrompt);
     responses.push(response);
