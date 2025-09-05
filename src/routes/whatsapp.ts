@@ -90,7 +90,8 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     twiml.message(
       `Welcome to Psy-Trader 👋\n\nTo begin, securely connect your Binance API keys here (link valid 5 minutes):\n${url}`
     );
-    return res.type("text/xml").send(twiml.toString());
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
   }
 
   console.log(`👤 Existing user found: ${user.id} (${from})`);
@@ -108,7 +109,8 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     twiml.message(
       `🤖 *Psy-Trader Commands*\n\n🔄 *Change API Key* - Update your Binance API credentials\n🔗 *Change Wallets* - Manage your wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also just chat with me naturally about trading, emotions, or ask for portfolio analysis!`
     );
-    return res.type("text/xml").send(twiml.toString());
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
   }
 
   // Handle "change api key" or "change api keys" command
@@ -140,7 +142,8 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
         "❌ There was an error processing your request. Please try again."
       );
     }
-    return res.type("text/xml").send(twiml.toString());
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
   }
 
   // Handle "change wallets" or "manage wallets" command
@@ -176,7 +179,8 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
         "❌ There was an error processing your request. Please try again."
       );
     }
-    return res.type("text/xml").send(twiml.toString());
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
   }
 
   // Save incoming message
@@ -202,19 +206,24 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     const reply = String(
       result.finalResponse || "I'm here with you. Breathe. How can I help?"
     );
+
+    // Additional validation for empty response
+    const validReply =
+      reply.trim() || "I'm here to help. How are you feeling? 💙";
+
     console.log(
-      `✅ Agent processing complete. Response length: ${reply.length} chars`
+      `✅ Agent processing complete. Response length: ${validReply.length} chars`
     );
-    console.log(`📝 Raw response content: ${reply.substring(0, 150)}...`);
+    console.log(`📝 Raw response content: ${validReply.substring(0, 150)}...`);
 
     // Split response into multiple messages if it contains separator
-    let responses = reply
+    let responses = validReply
       .split("\n\n---\n\n")
       .filter((r) => r && r.trim().length > 0);
 
     // If no separator was used, treat as single message
     if (responses.length === 0) {
-      responses = [reply.trim()];
+      responses = [validReply.trim()];
     }
 
     // Further split any messages that are still too long
@@ -251,14 +260,23 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
       }
     }
 
+    console.log(
+      `📊 TwiML object has ${finalResponses.length} message(s) prepared`
+    );
+    console.log(`🔍 TwiML object type:`, typeof twiml);
+
     // Save the full agent response to database
     await prisma.chatMessage.create({
-      data: { userId: user.id, sender: "AGENT", content: reply },
+      data: { userId: user.id, sender: "AGENT", content: validReply },
     });
     console.log(`💾 Agent response saved to database`);
 
-    console.log(`� Sending complete WhatsApp response`);
-    return res.type("text/xml").send(twiml.toString());
+    console.log(`📱 Sending complete WhatsApp response`);
+    const twimlString = twiml.toString();
+    console.log(`📋 TwiML Response:`);
+    console.log(twimlString);
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twimlString);
   } catch (e: any) {
     console.error(
       `❌ Error processing message for user ${user.id}:`,
@@ -268,7 +286,12 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     twiml.message(
       "Sorry — I hit a snag analyzing that. Please try again shortly."
     );
-    return res.type("text/xml").send(twiml.toString());
+    console.log(`📱 Sending error response via WhatsApp`);
+    const errorTwimlString = twiml.toString();
+    console.log(`📋 Error TwiML Response:`);
+    console.log(errorTwimlString);
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(errorTwimlString);
   }
 });
 

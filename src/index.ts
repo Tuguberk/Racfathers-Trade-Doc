@@ -52,6 +52,7 @@ app.listen(config.port, () => {
   console.log(`👋 Onboarding endpoint: /onboard/:token`);
   console.log(`🧠 Agent prompts management: /prompts`);
   console.log(`📚 Knowledge base management: /knowledge`);
-  console.log(`� Agent Graph Visualizer: /graph-visualizer`);
-  console.log(`�💊 Health check endpoint: /health`);
+  console.log(`📊 Agent Graph Visualizer: /graph-visualizer`);
+  console.log(`🧪 Test endpoints: /api/test-wallet/:address`);
+  console.log(`💊 Health check endpoint: /health`);
 });

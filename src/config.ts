@@ -26,6 +26,7 @@ export const config = {
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
   openRouterKey: process.env.OPENROUTER_API_KEY || "",
   openaiKey: process.env.OPENAI_API_KEY || "",
+  moralisApiKey: process.env.MORALIS_API_KEY || "",
   models: {
     advanced: process.env.ADVANCED_MODEL || "anthropic/claude-3-opus-20240229",
     utility: process.env.UTILITY_MODEL || "google/gemini-1.5-flash",

@@ -99,28 +99,111 @@ function shouldFetchFreshPortfolio(message: string): boolean {
 
 // Format portfolio data into a clean table
 function formatPortfolioTable(portfolioData: any): string {
-  if (!portfolioData?.summary?.topHoldings?.length) {
+  if (
+    !portfolioData?.summary?.topHoldings?.length &&
+    !portfolioData?.walletPortfolios?.length
+  ) {
     return "📊 *Portfolio Summary*\n\nNo assets found or all balances are zero.";
   }
 
-  const { totalUSDT, topHoldings } = portfolioData.summary;
+  const { totalUSDT, topHoldings } = portfolioData.summary || {
+    totalUSDT: 0,
+    topHoldings: [],
+  };
+  const { walletPortfolios = [], combinedSummary } = portfolioData;
+
   let table = `📊 *Portfolio Summary*\n`;
-  table += `💰 Total: $${totalUSDT.toLocaleString()}\n\n`;
+  table += `💰 Total: $${(
+    combinedSummary?.totalUSDT || totalUSDT
+  ).toLocaleString()}\n\n`;
 
-  // Limit to top 6 holdings for space
-  const displayHoldings = topHoldings.slice(0, 6);
+  // Show combined portfolio breakdown if we have wallet data
+  if (combinedSummary && combinedSummary.walletUSDT > 0) {
+    table += `🏦 Binance: $${combinedSummary.binanceUSDT.toLocaleString()}\n`;
+    table += `🔗 Wallets: $${combinedSummary.walletUSDT.toLocaleString()}\n\n`;
 
-  displayHoldings.forEach((holding: any, index: number) => {
-    const percentage =
-      totalUSDT > 0 ? ((holding.estUSDT / totalUSDT) * 100).toFixed(1) : "0.0";
-    // More compact format
-    table += `${index + 1}. ${holding.asset}: $${holding.estUSDT.toFixed(
-      0
-    )} (${percentage}%)\n`;
-  });
+    // Show top combined holdings from both Binance and wallets
+    table += `*Top Holdings (All Sources):*\n`;
+    const displayHoldings = combinedSummary.topCombinedHoldings.slice(0, 8);
 
-  if (topHoldings.length > 6) {
-    table += `\n...and ${topHoldings.length - 6} more assets`;
+    displayHoldings.forEach((holding: any, index: number) => {
+      const percentage =
+        combinedSummary.totalUSDT > 0
+          ? ((holding.estUSDT / combinedSummary.totalUSDT) * 100).toFixed(1)
+          : "0.0";
+
+      const sourceIcon = holding.source === "binance" ? "🏦" : "🔗";
+      const chainInfo = holding.chain
+        ? ` (${holding.chain.toUpperCase()})`
+        : "";
+
+      table += `${index + 1}. ${sourceIcon} ${
+        holding.asset
+      }${chainInfo}: $${holding.estUSDT.toFixed(0)} (${percentage}%)\n`;
+    });
+  } else {
+    // Show only Binance holdings if no wallet data
+    table += `*Binance Holdings:*\n`;
+    const displayHoldings = topHoldings.slice(0, 6);
+
+    displayHoldings.forEach((holding: any, index: number) => {
+      const percentage =
+        totalUSDT > 0
+          ? ((holding.estUSDT / totalUSDT) * 100).toFixed(1)
+          : "0.0";
+      table += `${index + 1}. 🏦 ${holding.asset}: $${holding.estUSDT.toFixed(
+        0
+      )} (${percentage}%)\n`;
+    });
+  }
+
+  // Add wallet-specific details if available
+  if (walletPortfolios && walletPortfolios.length > 0) {
+    table += `\n*Wallet Details:*\n`;
+
+    walletPortfolios.forEach((wallet: any, walletIndex: number) => {
+      if (wallet.totalUSDValue > 0) {
+        table += `\n📱 Wallet ${
+          walletIndex + 1
+        }: $${wallet.totalUSDValue.toLocaleString()}\n`;
+        table += `   Address: ${wallet.address.slice(
+          0,
+          6
+        )}...${wallet.address.slice(-4)}\n`;
+
+        // Show top tokens for this wallet
+        const topTokens = wallet.tokens
+          .filter((token: any) => token.usd_value > 1) // Only show tokens worth > $1
+          .slice(0, 3);
+
+        if (topTokens.length > 0) {
+          table += `   💰 Tokens: `;
+          table +=
+            topTokens
+              .map(
+                (token: any) =>
+                  `${token.symbol} ($${token.usd_value.toFixed(0)})`
+              )
+              .join(", ") + "\n";
+        }
+
+        // Show NFT count if any
+        if (wallet.nfts && wallet.nfts.length > 0) {
+          table += `   🖼️ NFTs: ${wallet.nfts.length} items`;
+
+          // Show names of first few NFTs if available
+          const nftNames = wallet.nfts
+            .slice(0, 2)
+            .map((nft: any) => nft.name || nft.token_id)
+            .filter(Boolean);
+
+          if (nftNames.length > 0) {
+            table += ` (${nftNames.join(", ")})`;
+          }
+          table += "\n";
+        }
+      }
+    });
   }
 
   return table;
@@ -236,7 +319,11 @@ async function fetch_and_analyze_portfolio(
   const apiSecret = decrypt(user.encryptedApiSecret);
 
   try {
-    const portfolio = await fetchPortfolio(apiKey, apiSecret);
+    const portfolio = await fetchPortfolio(
+      apiKey,
+      apiSecret,
+      user.whatsappNumber
+    );
     console.log(`📊 Portfolio data retrieved successfully`);
     console.log(
       `💼 Portfolio summary: ${JSON.stringify(
@@ -245,6 +332,16 @@ async function fetch_and_analyze_portfolio(
         2
       )}`
     );
+
+    // Log wallet portfolio summary if available
+    if (portfolio.walletPortfolios?.length > 0) {
+      console.log(
+        `🔗 Wallet portfolios: ${portfolio.walletPortfolios.length} wallets`
+      );
+      console.log(
+        `💰 Combined portfolio value: $${portfolio.combinedSummary.totalUSDT}`
+      );
+    }
 
     // Cache the portfolio for 10 minutes (600 seconds)
     console.log(`💾 Caching portfolio data for 10 minutes`);

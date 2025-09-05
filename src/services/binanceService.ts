@@ -1,4 +1,9 @@
 import ccxt from "ccxt";
+import { getUserWalletAddresses } from "./userService.js";
+import {
+  getMultipleWalletPortfolios,
+  WalletPortfolio,
+} from "./moralisService.js";
 
 export interface PortfolioData {
   balance: any;
@@ -6,12 +11,26 @@ export interface PortfolioData {
     totalUSDT: number;
     topHoldings: Array<{ asset: string; amount: number; estUSDT: number }>;
   };
+  walletPortfolios: WalletPortfolio[];
+  combinedSummary: {
+    binanceUSDT: number;
+    walletUSDT: number;
+    totalUSDT: number;
+    topCombinedHoldings: Array<{
+      source: "binance" | "wallet";
+      asset: string;
+      amount: number;
+      estUSDT: number;
+      chain?: string;
+    }>;
+  };
   plAnalysis: string;
 }
 
 export async function fetchPortfolio(
   apiKey: string,
-  apiSecret: string
+  apiSecret: string,
+  whatsappNumber?: string
 ): Promise<PortfolioData> {
   console.log(`🏦 Connecting to Binance API...`);
   const exchange = new ccxt.binance({
@@ -241,13 +260,110 @@ export async function fetchPortfolio(
 
     console.log(`🎯 Portfolio analysis: ${plAnalysis}`);
 
+    // Fetch wallet portfolios if whatsappNumber is provided
+    let walletPortfolios: WalletPortfolio[] = [];
+    let combinedTotalUSDT = totalUSDT;
+
+    if (whatsappNumber) {
+      try {
+        console.log(
+          `🔗 Fetching wallet addresses for WhatsApp number: ${whatsappNumber}`
+        );
+        const walletAddresses = await getUserWalletAddresses(whatsappNumber);
+        const addresses = walletAddresses.map((wallet) => wallet.address);
+
+        if (addresses.length > 0) {
+          console.log(
+            `📊 Fetching portfolio data for ${addresses.length} wallet addresses`
+          );
+          walletPortfolios = await getMultipleWalletPortfolios(addresses);
+
+          const walletTotalUSD = walletPortfolios.reduce(
+            (sum, portfolio) => sum + portfolio.totalUSDValue,
+            0
+          );
+          combinedTotalUSDT = totalUSDT + walletTotalUSD;
+
+          console.log(
+            `💼 Combined portfolio: Binance $${totalUSDT.toFixed(
+              2
+            )} + Wallets $${walletTotalUSD.toFixed(
+              2
+            )} = $${combinedTotalUSDT.toFixed(2)}`
+          );
+        } else {
+          console.log(`ℹ️ No wallet addresses found for user`);
+        }
+      } catch (walletError: any) {
+        console.error(
+          `⚠️ Error fetching wallet portfolios: ${walletError.message}`
+        );
+        // Continue without wallet data rather than failing the entire request
+      }
+    }
+
+    // Create combined holdings from both Binance and wallet data
+    const combinedHoldings: Array<{
+      source: "binance" | "wallet";
+      asset: string;
+      amount: number;
+      estUSDT: number;
+      chain?: string;
+    }> = [];
+
+    // Add Binance holdings
+    holdings.forEach((holding) => {
+      combinedHoldings.push({
+        source: "binance",
+        asset: holding.asset,
+        amount: holding.amount,
+        estUSDT: holding.estUSDT,
+      });
+    });
+
+    // Add wallet holdings
+    walletPortfolios.forEach((portfolio) => {
+      portfolio.tokens.forEach((token) => {
+        if (token.usd_value > 0) {
+          const amount = Number(token.balance) / Math.pow(10, token.decimals);
+          combinedHoldings.push({
+            source: "wallet",
+            asset: token.symbol,
+            amount: amount,
+            estUSDT: token.usd_value,
+            chain: token.chain,
+          });
+        }
+      });
+    });
+
+    // Sort combined holdings by USD value
+    combinedHoldings.sort((a, b) => b.estUSDT - a.estUSDT);
+
+    // Updated P/L analysis considering combined portfolio
+    const updatedPlAnalysis =
+      combinedTotalUSDT > totalUSDT
+        ? `${plAnalysis} Combined with wallet holdings ($${(
+            combinedTotalUSDT - totalUSDT
+          ).toFixed(
+            2
+          )}), diversification across platforms provides additional resilience.`
+        : plAnalysis;
+
     return {
       balance,
       summary: {
         totalUSDT: Number(totalUSDT.toFixed(2)),
         topHoldings: holdings.slice(0, 5),
       },
-      plAnalysis,
+      walletPortfolios,
+      combinedSummary: {
+        binanceUSDT: Number(totalUSDT.toFixed(2)),
+        walletUSDT: Number((combinedTotalUSDT - totalUSDT).toFixed(2)),
+        totalUSDT: Number(combinedTotalUSDT.toFixed(2)),
+        topCombinedHoldings: combinedHoldings.slice(0, 10),
+      },
+      plAnalysis: updatedPlAnalysis,
     };
   } catch (error: any) {
     console.error(`❌ Failed to fetch portfolio from Binance:`, error.message);
