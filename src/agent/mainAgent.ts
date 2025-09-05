@@ -3,7 +3,62 @@ import { prisma } from "../db/prisma.js";
 import { AgentState } from "./state.js";
 import { decrypt } from "../services/cryptoService.js";
 import { fetchPortfolio } from "../services/binanceService.js";
-import { getAdvancedAnalysis, getEmbedding } from "../services/llmService.js";
+import { getAdvancedAnalysis, getEmbedding, getUtilityResponse } from "../services/llmService.js";
+
+// Helper function to detect portfolio-related requests
+function isPortfolioRequest(message: string): boolean {
+  const portfolioKeywords = [
+    'portfolio', 'assets', 'holdings', 'balance', 'wallet',
+    'coins', 'tokens', 'positions', 'money', 'funds',
+    'show me', 'get my', 'fetch', 'check my', 'what do i have'
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  return portfolioKeywords.some(keyword => lowerMessage.includes(keyword));
+}
+
+// Format portfolio data into a clean table
+function formatPortfolioTable(portfolioData: any): string {
+  if (!portfolioData?.summary?.topHoldings?.length) {
+    return "📊 *Portfolio Summary*\n\nNo assets found or all balances are zero.";
+  }
+
+  const { totalUSDT, topHoldings } = portfolioData.summary;
+  let table = `📊 *Portfolio Summary*\n\n`;
+  table += `💰 *Total Value:* $${totalUSDT.toLocaleString()}\n\n`;
+  table += `🏆 *Top Assets:*\n`;
+  
+  topHoldings.forEach((holding: any, index: number) => {
+    const percentage = totalUSDT > 0 ? ((holding.estUSDT / totalUSDT) * 100).toFixed(1) : '0.0';
+    table += `${index + 1}. ${holding.asset}: ${holding.amount.toFixed(4)} ($${holding.estUSDT.toFixed(2)} - ${percentage}%)\n`;
+  });
+
+  return table;
+}
+
+// Generate portfolio analysis summary
+function generatePortfolioSummary(portfolioData: any): string {
+  const { totalUSDT, topHoldings } = portfolioData.summary;
+  
+  if (totalUSDT === 0) {
+    return "Your portfolio appears to be empty or all positions are very small.";
+  }
+
+  const assetCount = topHoldings.length;
+  const topAsset = topHoldings[0];
+  const diversification = assetCount > 5 ? "well-diversified" : 
+                         assetCount > 3 ? "moderately diversified" : "concentrated";
+
+  let summary = `You have $${totalUSDT.toLocaleString()} across ${assetCount} assets. `;
+  summary += `Your portfolio is ${diversification}`;
+  
+  if (topAsset && topAsset.estUSDT > 0) {
+    const topPercentage = ((topAsset.estUSDT / totalUSDT) * 100).toFixed(1);
+    summary += `, with ${topAsset.asset} being your largest position at ${topPercentage}%.`;
+  }
+
+  return summary;
+}
 
 async function retrieve_user_and_history(
   state: AgentState
@@ -72,42 +127,29 @@ async function fetch_and_analyze_portfolio(
   }
 }
 
-async function analyze_psychological_state(
+async function analyze_message_intent(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log(`🧠 Step 3: Analyzing psychological state`);
+  console.log(`🔍 Step 3: Analyzing message intent`);
   console.log(`📝 Current message: "${state.inputMessage}"`);
-  console.log(`📚 Chat history length: ${state.chatHistory.length} messages`);
 
-  const prompt = `You are a trading psychology analyst. Analyze the user's emotional state.
-Return a compact JSON like { "state": "fear|anxiety|greed|fomo|calm|...", "reason": "..." }.
+  const isPortfolioReq = isPortfolioRequest(state.inputMessage);
+  console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
 
-Latest message: ${state.inputMessage}
-Recent messages: ${JSON.stringify(state.chatHistory.slice(-10))}
-Portfolio summary: ${JSON.stringify(state.portfolioData?.summary)}
-`;
+  // Analyze user's psychological state
+  const psychPrompt = `Analyze the emotional state of this crypto trader message. 
+Return JSON: {"emotion": "calm|anxious|excited|fearful|greedy|confused", "confidence": 1-10, "urgency": 1-10}
 
-  console.log(`🔍 Sending psychological analysis request to LLM`);
-  const raw = await getAdvancedAnalysis(prompt);
-  console.log(
-    `🎯 Raw LLM response for psychology: ${raw.substring(0, 200)}...`
-  );
+Message: "${state.inputMessage}"
+Recent chat: ${JSON.stringify(state.chatHistory.slice(-3))}`;
 
-  // Best-effort parse
-  let parsed = raw;
-  try {
-    const jsonStart = raw.indexOf("{");
-    const jsonEnd = raw.lastIndexOf("}");
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      parsed = raw.slice(jsonStart, jsonEnd + 1);
-      const testParse = JSON.parse(parsed);
-      console.log(`✅ Successfully parsed psychology JSON:`, testParse);
-    }
-  } catch (parseError) {
-    console.log(`⚠️  Could not parse psychology JSON, using raw response`);
-  }
+  const psychAnalysis = await getUtilityResponse(psychPrompt);
+  console.log(`🧠 Psychology analysis: ${psychAnalysis}`);
 
-  return { psychologicalAnalysis: parsed };
+  return { 
+    psychologicalAnalysis: psychAnalysis,
+    isPortfolioRequest: isPortfolioReq
+  };
 }
 
 async function search_knowledge_base(
@@ -151,38 +193,63 @@ async function generate_final_response(
   state: AgentState
 ): Promise<Partial<AgentState>> {
   console.log(`✍️  Step 5: Generating final response`);
-  console.log(
-    `🎭 Psychology analysis: ${state.psychologicalAnalysis.substring(
-      0,
-      100
-    )}...`
-  );
-  console.log(
-    `📚 Knowledge base content length: ${state.relevantKnowledge.length} chars`
-  );
+  console.log(`📊 Is portfolio request: ${state.isPortfolioRequest}`);
 
-  const persona = `You are Psy-Trader, a calm, empathetic, yet clear-headed counselor for crypto traders.
-Tone: soothing, supportive, grounded, brief but meaningful. Avoid financial advice; focus on psychology.`;
+  let responses: string[] = [];
 
-  const prompt = `${persona}
-User message: ${state.inputMessage}
-Portfolio summary: ${JSON.stringify(state.portfolioData?.summary)}
-Psychology analysis: ${state.psychologicalAnalysis}
-Relevant wisdom:\n${state.relevantKnowledge}
+  // Handle portfolio requests specifically
+  if (state.isPortfolioRequest && state.portfolioData) {
+    console.log(`� Generating portfolio-specific response`);
+    
+    // First message: Portfolio table
+    const portfolioTable = formatPortfolioTable(state.portfolioData);
+    responses.push(portfolioTable);
 
-Write a concise response that:
-- Acknowledges emotions and context
-- Mentions portfolio state supportively (no precise numbers unless already provided)
-- Integrates one relevant quote/wisdom naturally
-- Offers 1-2 clear, calming next steps
-`;
+    // Second message: Analysis and advice
+    const portfolioSummary = generatePortfolioSummary(state.portfolioData);
+    
+    const analysisPrompt = `As Psy-Trader, provide brief psychological insight based on this portfolio data.
+Portfolio: ${portfolioSummary}
+User emotion: ${state.psychologicalAnalysis}
+Relevant wisdom: ${state.relevantKnowledge}
 
-  console.log(`🤖 Sending final response generation request to LLM`);
-  const resp = await getAdvancedAnalysis(prompt);
-  console.log(`✅ Generated response length: ${resp.length} characters`);
-  console.log(`💭 Response preview: "${resp.substring(0, 150)}..."`);
+Write 2-3 sentences focusing on:
+- Emotional state related to their portfolio
+- One key psychological insight
+- A brief, actionable suggestion
 
-  return { finalResponse: resp };
+Keep it conversational and supportive.`;
+
+    const psychInsight = await getUtilityResponse(analysisPrompt);
+    responses.push(`💭 ${psychInsight}`);
+
+  } else {
+    // Handle general trading psychology questions
+    console.log(`🧠 Generating general psychology response`);
+    
+    const generalPrompt = `As Psy-Trader, respond to this crypto trader's message.
+User message: "${state.inputMessage}"
+Psychology: ${state.psychologicalAnalysis}
+Knowledge: ${state.relevantKnowledge}
+
+Provide a concise, empathetic response (2-3 sentences) that:
+- Acknowledges their emotional state
+- Offers practical psychological advice
+- Keeps them grounded
+
+No financial advice, focus on mindset and psychology.`;
+
+    const response = await getUtilityResponse(generalPrompt);
+    responses.push(response);
+  }
+
+  // Join multiple responses with a separator
+  const finalResponse = responses.join('\n\n---\n\n');
+  
+  console.log(`✅ Generated ${responses.length} response parts`);
+  console.log(`💭 Total response length: ${finalResponse.length} characters`);
+
+  return { finalResponse };
 }
 
 const graph = new StateGraph<AgentState>({
@@ -194,17 +261,18 @@ const graph = new StateGraph<AgentState>({
     psychologicalAnalysis: null,
     relevantKnowledge: null,
     finalResponse: null,
+    isPortfolioRequest: null,
   },
 })
   .addNode("retrieve_user_and_history", retrieve_user_and_history)
   .addNode("fetch_and_analyze_portfolio", fetch_and_analyze_portfolio)
-  .addNode("analyze_psychological_state", analyze_psychological_state)
+  .addNode("analyze_message_intent", analyze_message_intent)
   .addNode("search_knowledge_base", search_knowledge_base)
   .addNode("generate_final_response", generate_final_response)
   .addEdge("__start__", "retrieve_user_and_history")
   .addEdge("retrieve_user_and_history", "fetch_and_analyze_portfolio")
-  .addEdge("fetch_and_analyze_portfolio", "analyze_psychological_state")
-  .addEdge("analyze_psychological_state", "search_knowledge_base")
+  .addEdge("fetch_and_analyze_portfolio", "analyze_message_intent")
+  .addEdge("analyze_message_intent", "search_knowledge_base")
   .addEdge("search_knowledge_base", "generate_final_response")
   .addEdge("generate_final_response", "__end__");
 

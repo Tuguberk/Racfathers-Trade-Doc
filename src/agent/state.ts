@@ -6,5 +6,6 @@ export interface AgentState {
   psychologicalAnalysis: string;
   relevantKnowledge: string;
   finalResponse: string;
+  isPortfolioRequest?: boolean;
 }
 

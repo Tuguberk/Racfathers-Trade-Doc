@@ -16,9 +16,8 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
   console.log(`💬 Message content: "${body}"`);
 
   if (!from || !body) {
-    console.log("⚠️  Empty message or sender, sending default greeting");
-    twiml.message("Hello! Send a message to begin.");
-    return res.type("text/xml").send(twiml.toString());
+    console.log("⚠️  Empty message or sender, ignoring");
+    return res.status(200).send(); // Just return 200 without any response
   }
 
   // Check user exists
@@ -57,24 +56,36 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
       psychologicalAnalysis: "",
       relevantKnowledge: "",
       finalResponse: "",
+      isPortfolioRequest: false,
     });
 
-    const reply =
-      result.finalResponse || "I'm here with you. Breathe. How can I help?";
+    const reply = String(
+      result.finalResponse || "I'm here with you. Breathe. How can I help?"
+    );
     console.log(
-      `✅ Agent processing complete. Response length: ${
-        String(reply).length
-      } chars`
+      `✅ Agent processing complete. Response length: ${reply.length} chars`
     );
 
-    // Save agent message
+    // Split response into multiple messages if it contains separator
+    const responses = reply.split('\n\n---\n\n');
+    console.log(`📤 Sending ${responses.length} message(s) to user`);
+
+    // Send each response as a separate WhatsApp message
+    for (let i = 0; i < responses.length; i++) {
+      const message = responses[i].trim();
+      if (message) {
+        twiml.message(message);
+        console.log(`📤 Message ${i + 1}/${responses.length} prepared: ${message.substring(0, 50)}...`);
+      }
+    }
+
+    // Save the full agent response to database
     await prisma.chatMessage.create({
       data: { userId: user.id, sender: "AGENT", content: reply },
     });
     console.log(`💾 Agent response saved to database`);
 
-    twiml.message(reply);
-    console.log(`📤 Response sent via WhatsApp`);
+    console.log(`� Sending complete WhatsApp response`);
     return res.type("text/xml").send(twiml.toString());
   } catch (e: any) {
     console.error(
