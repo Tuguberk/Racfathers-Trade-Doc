@@ -972,9 +972,9 @@ async function search_knowledge_base(
   console.log(`🔎 Executing vector similarity search in knowledge base`);
 
   try {
-    const rows: Array<{ id: string; content: string }> =
+    const rows: Array<{ id: string; content: string; author: string }> =
       await prisma.$queryRawUnsafe(
-        `SELECT id, content FROM "KnowledgeArticle" ORDER BY embedding <-> '${vectorLiteral}'::vector LIMIT 2`
+        `SELECT id, content, author FROM "KnowledgeArticle" ORDER BY embedding <-> '${vectorLiteral}'::vector LIMIT 2`
       );
     console.log(`📖 Found ${rows.length} relevant knowledge articles`);
     rows.forEach((row, index) => {
@@ -986,7 +986,9 @@ async function search_knowledge_base(
       );
     });
 
-    const knowledge = rows.map((r) => r.content).join("\n\n");
+    const knowledge = rows
+      .map((r) => `${r.content}\nAuthor: ${r.author}`)
+      .join("\n\n---\n\n");
     return { relevantKnowledge: knowledge };
   } catch (error: any) {
     console.error(`❌ Failed to search knowledge base:`, error.message);
