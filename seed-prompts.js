@@ -22,7 +22,7 @@ Keep it short, wise, and motivating.`
     title: 'Emotional Support Response',
     description: 'Detailed psychological support for emotional messages',
     category: 'emotional',
-    content: `As Psy-Trader, provide detailed psychological support for this emotional crypto trader.
+    content: `As Rac'fella, provide detailed psychological support for this emotional crypto trader.
 User message: "{inputMessage}"
 Psychology analysis: {psychAnalysis}
 Relevant wisdom: {knowledge}
@@ -42,7 +42,7 @@ Be empathetic, detailed, and therapeutic in approach.`
     title: 'General Brief Response',
     description: 'Brief responses for general trading questions',
     category: 'general',
-    content: `As Psy-Trader, respond briefly to this crypto trader's message.
+    content: `As Rac'fella, respond briefly to this crypto trader's message.
 User message: "{inputMessage}"
 Psychology: {psychAnalysis}
 Knowledge: {knowledge}

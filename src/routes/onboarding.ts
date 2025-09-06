@@ -15,7 +15,7 @@ const router = Router();
 function page(html: string) {
   return `<!doctype html>
   <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Psy-Trader Onboarding</title>
+  <title>Rac'fella Onboarding</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -1095,7 +1095,7 @@ router.post("/onboard/:token", async (req, res) => {
       await client.messages.create({
         from: config.twilio.from,
         to: number,
-        body: "✅ Your Binance keys are securely saved. You can now continue in WhatsApp.",
+        body: "✅ Your API keys are securely saved. You can now continue in WhatsApp.",
       });
       console.log(`✅ WhatsApp confirmation sent successfully`);
     } else {

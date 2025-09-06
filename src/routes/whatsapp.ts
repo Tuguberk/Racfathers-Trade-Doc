@@ -130,7 +130,7 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     const url = `${config.appBaseUrl}/onboard/${token}`;
     console.log(`🔗 Generated onboarding token: ${token}`);
     twiml.message(
-      `Welcome to Psy-Trader 👋\n\nTo begin, securely connect your Binance API keys here (link valid 5 minutes):\n${url}`
+      `Welcome to Rac'fella 👋\n\nTo begin, securely connect your API keys here (link valid 5 minutes):\n${url}`
     );
     res.set("Content-Type", "text/xml; charset=utf-8");
     return res.send(twiml.toString());
@@ -226,7 +226,7 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
   ) {
     console.log(`ℹ️ Help command detected from: ${from}`);
     twiml.message(
-      `🤖 *Psy-Trader Commands*\n\n� *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n�🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
+      `🤖 *Rac'fella Commands*\n\n💰 *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
     );
     res.set("Content-Type", "text/xml; charset=utf-8");
     return res.send(twiml.toString());
@@ -283,7 +283,7 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
           message: string;
         };
         twiml.message(
-          `🔄 Update Your API Keys\n\nClick the link below to securely update your Binance API credentials (valid for 5 minutes):\n\n${data.url}\n\n⚡ This will replace your current API keys with new ones.`
+          `🔄 Update Your API Keys\n\nClick the link below to securely update your API credentials (valid for 5 minutes):\n\n${data.url}\n\n⚡ This will replace your current API keys with new ones.`
         );
       } else {
         twiml.message(
@@ -467,7 +467,7 @@ async function processTranscribedMessage(
     console.log(`ℹ️ Help command detected from transcribed voice: ${from}`);
     await sendWhatsAppNotification(
       from,
-      `🤖 *Psy-Trader Commands*\n\n💰 *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
+      `🤖 *Rac'fella Commands*\n\n💰 *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
     );
     return;
   }

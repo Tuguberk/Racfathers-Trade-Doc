@@ -155,7 +155,7 @@ export class PromptService {
    */
   private static getSystemPrompt(promptName: string): string {
     const systemPrompts: Record<string, string> = {
-      system_base: `You are Psy-Trader, a professional trading psychology coach. Your responses should be:
+      system_base: `You are Rac'fella, a professional trading psychology coach. Your responses should be:
 - Empathetic and supportive
 - Practical and actionable
 - Based on established trading psychology principles

@@ -11,7 +11,7 @@ import { prisma } from "./db/prisma.js";
 
 const app = express();
 
-console.log(`🚀 Starting Psy-Trader server...`);
+console.log(`🚀 Starting Rac'fella server...`);
 console.log(`🔧 Environment: ${process.env.NODE_ENV || "development"}`);
 console.log(`🌐 Port: ${config.port}`);
 
@@ -46,7 +46,7 @@ console.log(
 
 app.listen(config.port, () => {
   // eslint-disable-next-line no-console
-  console.log(`🎉 Psy-Trader server is ready and listening on :${config.port}`);
+  console.log(`🎉 Rac'fella server is ready and listening on :${config.port}`);
   console.log(`🏠 Dashboard homepage: http://localhost:${config.port}`);
   console.log(`📱 WhatsApp webhook endpoint: /api/whatsapp/webhook`);
   console.log(`👋 Onboarding endpoint: /onboard/:token`);

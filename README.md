@@ -1,4 +1,4 @@
-# Psy-Trader
+# Rac'fella
 
 WhatsApp-based psychological trading support agent. Calm, supportive guidance synthesized from user chat history, live Binance portfolio data, and a vectorized knowledge base.
 
