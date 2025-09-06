@@ -182,6 +182,28 @@ function isEmotionalMessage(message: string): boolean {
   });
 }
 
+// Helper: detect explicit financial advice requests (keep simple/keyword-based)
+function isFinancialAdviceRequest(message: string): boolean {
+  const adviceKeywords = [
+    "buy",
+    "sell",
+    "entry",
+    "target",
+    "stop loss",
+    "take profit",
+    "signal",
+    "call",
+    "long",
+    "short",
+    "buy btc",
+    "sell btc",
+    "buy eth",
+    "sell eth",
+  ];
+  const lower = message.toLowerCase();
+  return adviceKeywords.some((kw) => lower.includes(kw));
+}
+
 // Helper function to detect if user wants fresh portfolio data
 function shouldFetchFreshPortfolio(message: string): boolean {
   const freshDataKeywords = [
@@ -613,83 +635,317 @@ async function fetch_and_analyze_portfolio(
   }
 }
 
-async function analyze_message_intent(
+// Analyze and route to a single mode: crisis | journal | portfolio_position | financial_advice | psychology
+async function analyze_and_route(
   state: AgentState
 ): Promise<Partial<AgentState>> {
-  console.log(`🔍 Step 4: Analyzing message intent`);
-  console.log(`📝 Current message: "${state.inputMessage}"`);
+  const msg = state.inputMessage || "";
+  console.log(
+    `🤖 Analyzing user intent with LLM for message: "${msg.substring(
+      0,
+      100
+    )}..."`
+  );
 
-  const isPosReq = isPositionRequest(state.inputMessage);
-  const isPortfolioReq = !isPosReq && isPortfolioRequest(state.inputMessage);
-  const isEmotionalReq = isEmotionalMessage(state.inputMessage);
-  const crisisResult = isCrisisMessage(state.inputMessage);
-  const isCrisisReq = crisisResult.isCrisis;
+  // Step 1: Crisis detection (highest priority - always check first)
+  const crisis = isCrisisMessage(msg);
+  if (crisis.isCrisis) {
+    console.log(`🚨 CRISIS DETECTED: Routing to crisis handler`);
+    return { intent: "crisis", isCrisisMessage: true };
+  }
 
-  console.log(`🎯 Position request detected: ${isPosReq}`);
-  console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
-  console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
-  console.log(`🚨 CRISIS MESSAGE DETECTED: ${isCrisisReq}`);
+  // Step 2: LLM-based Intent Classification
+  const intentAnalysisPrompt = `You are a trading psychology AI assistant. Analyze the user's message and classify their intent.
 
-  if (isCrisisReq) {
-    console.log(
-      `🚨 CRISIS TRIGGER WORDS: [${crisisResult.triggerWords.join(", ")}]`
+User Message: "${msg}"
+Recent Chat History: ${JSON.stringify((state.chatHistory || []).slice(-5))}
+
+Classify the user's intent as one of these categories:
+1. "crisis" - User expresses suicidal thoughts, extreme despair, self-harm, or severe financial distress
+2. "journal" - User wants to write journal, reflect, set goals, or review past entries
+3. "portfolio_position" - User asks about their portfolio, positions, balances, holdings, or wants to check their assets
+4. "financial_advice" - User asks for trading signals, buy/sell recommendations, or specific investment advice
+5. "psychology" - User discusses emotions, feelings, stress, or needs emotional support
+
+Respond with a JSON object containing:
+{
+  "intent": "category_name",
+  "confidence": 0.95,
+  "reasoning": "Brief explanation of why you chose this category"
+}
+
+Be precise and consider the context. If uncertain, use "psychology" as default.`;
+
+  let llmIntentResponse;
+  try {
+    llmIntentResponse = await getUtilityResponse(intentAnalysisPrompt);
+    console.log(`🧠 LLM Intent Analysis Result: ${llmIntentResponse}`);
+  } catch (error) {
+    console.warn(
+      "LLM intent classification failed, falling back to keyword analysis:",
+      error
     );
+    return await fallbackKeywordRouting(state);
   }
 
-  // URGENT: Force psychological analysis for crisis messages regardless of portfolio request
-  if (isCrisisReq) {
+  // Parse LLM response to extract intent and confidence
+  const { intent, confidence, reasoning } =
+    parseIntentResponse(llmIntentResponse);
+  console.log(
+    `📊 Parsed Intent: ${intent} (confidence: ${confidence}%) - ${reasoning}`
+  );
+
+  // Step 3: Route based on LLM classification with confidence thresholds
+  if (confidence >= 0.8) {
+    return await routeByIntent(intent, state, msg);
+  } else if (confidence >= 0.6) {
+    // Medium confidence - validate with keyword checks
     console.log(
-      `🚨 CRISIS INTERVENTION: Forcing psychological analysis for urgent case`
+      `🔍 Medium confidence (${confidence}%), validating with keywords`
     );
+    const keywordValidation = await validateIntentWithKeywords(intent, msg);
+
+    if (keywordValidation.isValid) {
+      console.log(`✅ Keyword validation passed for ${intent}`);
+      return await routeByIntent(intent, state, msg);
+    } else {
+      console.log(`❌ Keyword validation failed, using fallback routing`);
+      return await fallbackKeywordRouting(state);
+    }
+  } else {
+    // Low confidence - use keyword-based fallback
+    console.log(
+      `⚠️ Low confidence (${confidence}%), using keyword-based routing`
+    );
+    return await fallbackKeywordRouting(state);
+  }
+}
+
+// Helper function to parse LLM intent response
+function parseIntentResponse(response: string): {
+  intent: string;
+  confidence: number;
+  reasoning: string;
+} {
+  try {
+    // Try to extract JSON if present
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        intent: parsed.intent || "psychology",
+        confidence: parsed.confidence || 0.5,
+        reasoning: parsed.reasoning || "No reasoning provided",
+      };
+    }
+
+    // Fallback: extract intent from text
+    const intentMatch = response.toLowerCase().match(/intent[:\s]+([a-z_]+)/);
+    const confidenceMatch = response.match(/confidence[:\s]+(\d+)/);
+
     return {
-      psychologicalAnalysis: "", // Will be filled in next step
-      isPortfolioRequest: isPortfolioReq,
-      isEmotionalMessage: true, // Force emotional processing
-      isCrisisMessage: true,
-      relevantKnowledge: "", // Will search crisis intervention knowledge
+      intent: intentMatch?.[1] || "psychology",
+      confidence: confidenceMatch ? parseInt(confidenceMatch[1]) / 100 : 0.5,
+      reasoning: response.substring(0, 200),
+    };
+  } catch (error) {
+    console.warn("Failed to parse intent response:", error);
+    return {
+      intent: "psychology",
+      confidence: 0.3,
+      reasoning: "Failed to parse response",
+    };
+  }
+}
+
+// Helper function to validate intent with keyword matching
+async function validateIntentWithKeywords(
+  intent: string,
+  message: string
+): Promise<{ isValid: boolean; details: string }> {
+  const lowerMsg = message.toLowerCase();
+
+  switch (intent) {
+    case "portfolio_position":
+      const hasPortfolioKeywords =
+        isPortfolioRequest(message) || isPositionRequest(message);
+      return {
+        isValid: hasPortfolioKeywords,
+        details: "Checked portfolio/position keywords",
+      };
+
+    case "financial_advice":
+      const hasAdviceKeywords = isFinancialAdviceRequest(message);
+      return {
+        isValid: hasAdviceKeywords,
+        details: "Checked financial advice keywords",
+      };
+
+    case "journal":
+      const hasJournalKeywords =
+        JOURNAL_FEATURE_ENABLED && looksLikeJournal(message);
+      return {
+        isValid: hasJournalKeywords,
+        details: "Checked journal keywords",
+      };
+
+    case "crisis":
+      const hasCrisisKeywords = isCrisisMessage(message).isCrisis;
+      return { isValid: hasCrisisKeywords, details: "Checked crisis keywords" };
+
+    case "psychology":
+      // Psychology is default - always valid
+      return { isValid: true, details: "Psychology is default intent" };
+
+    default:
+      return { isValid: false, details: "Unknown intent" };
+  }
+}
+
+// Helper function to route based on validated intent
+async function routeByIntent(
+  intent: string,
+  state: AgentState,
+  message: string
+): Promise<Partial<AgentState>> {
+  console.log(`🎯 Routing to intent: ${intent}`);
+
+  switch (intent) {
+    case "crisis":
+      return { intent: "crisis", isCrisisMessage: true };
+
+    case "journal":
+      if (!JOURNAL_FEATURE_ENABLED) {
+        console.log(`📒 Journal feature disabled, falling back to psychology`);
+        return await routeByIntent("psychology", state, message);
+      }
+
+      try {
+        const nlp = await classifyJournalIntent(message);
+        if (nlp.crisis_flag) return { intent: "crisis", isCrisisMessage: true };
+
+        const MIN = 0.6;
+        const conf = nlp.confidence ?? 0;
+        const action =
+          nlp.intent === "SET_GOAL"
+            ? "SET_GOAL"
+            : nlp.intent === "NONE" || conf < MIN
+            ? "ADD_ENTRY"
+            : (nlp.intent as any);
+
+        return {
+          intent: "journal",
+          isJournalRequest: true,
+          journalAction: action,
+          journalNLP: nlp as any,
+        };
+      } catch (e) {
+        console.warn("Journal NLP failed, falling back to psychology:", e);
+        return await routeByIntent("psychology", state, message);
+      }
+
+    case "portfolio_position":
+      const isPosition = isPositionRequest(message);
+      const isPortfolio = !isPosition && isPortfolioRequest(message);
+      return {
+        intent: "portfolio_position",
+        isPositionRequest: isPosition,
+        isPortfolioRequest: isPortfolio || !isPosition,
+      };
+
+    case "financial_advice":
+      return {
+        intent: "financial_advice",
+        isFinancialAdviceRequest: true,
+      };
+
+    case "psychology":
+    default:
+      // Generate psychological analysis
+      const psychPrompt = await PromptService.getPrompt("psychology_analysis", {
+        inputMessage: message,
+        recentHistory: JSON.stringify((state.chatHistory || []).slice(-5)),
+        isEmotional: String(isEmotionalMessage(message)),
+        isCrisis: "false",
+      });
+      const psychAnalysis = await getUtilityResponse(psychPrompt);
+
+      return {
+        intent: "psychology",
+        isEmotionalMessage: isEmotionalMessage(message),
+        psychologicalAnalysis: psychAnalysis,
+      };
+  }
+}
+
+// Fallback keyword-based routing (original logic)
+async function fallbackKeywordRouting(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  console.log(`🔄 Using fallback keyword-based routing`);
+  const msg = state.inputMessage || "";
+
+  // Crisis first
+  const crisis = isCrisisMessage(msg);
+  if (crisis.isCrisis) {
+    return { intent: "crisis", isCrisisMessage: true };
+  }
+
+  // Journal (if enabled)
+  if (JOURNAL_FEATURE_ENABLED && looksLikeJournal(msg)) {
+    try {
+      const nlp = await classifyJournalIntent(msg);
+      if (nlp.crisis_flag) return { intent: "crisis", isCrisisMessage: true };
+      const MIN = 0.6;
+      const conf = nlp.confidence ?? 0;
+      const action =
+        nlp.intent === "SET_GOAL"
+          ? "SET_GOAL"
+          : nlp.intent === "NONE" || conf < MIN
+          ? "ADD_ENTRY"
+          : (nlp.intent as any);
+      return {
+        intent: "journal",
+        isJournalRequest: true,
+        journalAction: action,
+        journalNLP: nlp as any,
+      };
+    } catch (e) {
+      console.warn("Journal NLP failed; continuing intent analysis", e);
+    }
+  }
+
+  // Portfolio / Position
+  const posReq = isPositionRequest(msg);
+  const portReq = !posReq && isPortfolioRequest(msg);
+  if (posReq || portReq) {
+    return {
+      intent: "portfolio_position",
+      isPositionRequest: posReq,
+      isPortfolioRequest: portReq || !posReq,
     };
   }
 
-  // Skip psychological analysis for direct position requests
-  if (isPosReq) {
-    console.log(`🎯 Position request: skipping psychology & knowledge base`);
+  // Financial advice
+  if (isFinancialAdviceRequest(msg)) {
     return {
-      psychologicalAnalysis: "",
-      isPortfolioRequest: false,
-      isPositionRequest: true,
-      isEmotionalMessage: isEmotionalReq,
-      relevantKnowledge: "",
-    };
-  }
-  // Skip psychological analysis for portfolio requests
-  if (isPortfolioReq) {
-    console.log(`📊 Skipping psychological analysis for portfolio request`);
-    return {
-      psychologicalAnalysis: "", // Empty for portfolio requests
-      isPortfolioRequest: true,
-      isPositionRequest: false,
-      isEmotionalMessage: isEmotionalReq,
-      relevantKnowledge: "", // Skip knowledge base for portfolio requests
+      intent: "financial_advice",
+      isFinancialAdviceRequest: true,
     };
   }
 
-  // Analyze user's psychological state with context for non-portfolio requests
+  // Psychology (default)
   const psychPrompt = await PromptService.getPrompt("psychology_analysis", {
-    inputMessage: state.inputMessage,
-    recentHistory: JSON.stringify(state.chatHistory.slice(-5)),
-    isEmotional: isEmotionalReq.toString(),
-    isCrisis: isCrisisReq.toString(), // Add crisis context
+    inputMessage: msg,
+    recentHistory: JSON.stringify((state.chatHistory || []).slice(-5)),
+    isEmotional: String(isEmotionalMessage(msg)),
+    isCrisis: "false",
   });
-
-  const psychAnalysis = await getUtilityResponse(psychPrompt);
-  console.log(`🧠 Psychology analysis: ${psychAnalysis}`);
-
+  const psych = await getUtilityResponse(psychPrompt);
   return {
-    psychologicalAnalysis: psychAnalysis,
-    isPortfolioRequest: isPortfolioReq,
-    isPositionRequest: isPosReq,
-    isEmotionalMessage: isEmotionalReq,
-    isCrisisMessage: isCrisisReq,
+    intent: "psychology",
+    isEmotionalMessage: isEmotionalMessage(msg),
+    psychologicalAnalysis: psych,
   };
 }
 
@@ -738,140 +994,138 @@ async function search_knowledge_base(
   }
 }
 
-async function generate_final_response(
-  state: AgentState
-): Promise<Partial<AgentState>> {
-  console.log(`✍️  Step 6: Generating final response`);
-  console.log(state);
+// Crisis mode handler
+async function handle_crisis(state: AgentState): Promise<Partial<AgentState>> {
+  const crisisPrompt = await PromptService.getPrompt("crisis_intervention", {
+    inputMessage: state.inputMessage,
+    psychAnalysis: state.psychologicalAnalysis,
+    knowledge: state.relevantKnowledge,
+    isCrisis: "true",
+  });
+  const crisisResponse = await getAdvancedAnalysis(crisisPrompt);
 
-  // 🚨 URGENT CRISIS INTERVENTION
-  if (state.isCrisisMessage) {
-    console.log(`🚨 GENERATING CRISIS INTERVENTION RESPONSE`);
-
-    const crisisPrompt = await PromptService.getPrompt("crisis_intervention", {
-      inputMessage: state.inputMessage,
-      psychAnalysis: state.psychologicalAnalysis,
-      knowledge: state.relevantKnowledge,
-      isCrisis: "true",
-    });
-
-    const crisisResponse = await getAdvancedAnalysis(crisisPrompt);
-
-    // Get user information for crisis alert
+  try {
     const user = await prisma.user.findUnique({
       where: { id: state.userId },
       select: { whatsappNumber: true, id: true },
     });
+    const userInfo = user
+      ? `User: ${user.whatsappNumber} (ID: ${user.id})`
+      : `User ID: ${state.userId}`;
+    await sendWhatsAppNotification(
+      process.env.ADMIN_WHATSAPP_NUMBER || "whatsapp:+905516105835",
+      `🚨 CRISIS ALERT: Immediate attention required.\n\n${userInfo}\n\nMessage: "${state.inputMessage}"`
+    );
+  } catch (error) {
+    console.error(`❌ Failed to send crisis alert:`, error);
+  }
 
-    // Send urgent notification to admin/support team with user details
-    try {
-      const userInfo = user
-        ? `User: ${user.whatsappNumber} (ID: ${user.id})`
-        : `User ID: ${state.userId}`;
-      await sendWhatsAppNotification(
-        process.env.ADMIN_WHATSAPP_NUMBER || "whatsapp:+905516105835",
-        `🚨 CRISIS ALERT: User showing suicidal ideation. Immediate attention required.\n\n${userInfo}\n\nMessage: "${state.inputMessage}"\n\nPlease contact immediately!`
-      );
-      console.log(
-        `🚨 Crisis alert sent to admin for user: ${
-          user?.whatsappNumber || state.userId
-        }`
-      );
-    } catch (error) {
-      console.error(`❌ Failed to send crisis alert:`, error);
+  return { finalResponse: `🚨 ${crisisResponse}` };
+}
+
+// Portfolio/Position mode: assumes portfolioData is ready (or empty)
+async function generate_portfolio_response(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  const responses: string[] = [];
+  if (state.portfolioData) {
+    const cacheIndicator = state.hasCachedPortfolio ? " 📋 Cached" : " 🔄 Live";
+    responses.push(formatPortfolioTable(state.portfolioData) + cacheIndicator);
+
+    const positions = state.portfolioData.positions || [];
+    if (state.isPositionRequest && positions.length > 0) {
+      responses.push(formatPositionsTable(positions as Position[]));
     }
 
-    return { finalResponse: `🚨 ${crisisResponse}` };
-  }
-  console.log(`📊 Is portfolio request: ${state.isPortfolioRequest}`);
-
-  let responses: string[] = [];
-
-  // Handle portfolio requests specifically
-  if (state.isPortfolioRequest && state.portfolioData) {
-    console.log(`📈 Generating portfolio-specific response`);
-
-    // Add cache indicator to portfolio display
-    const cacheIndicator = state.hasCachedPortfolio
-      ? " 📋 Cached"
-      : " 🔄 Live";
-
-    // First message: Portfolio table
-    const portfolioTable = formatPortfolioTable(state.portfolioData);
-    responses.push(portfolioTable + cacheIndicator);
-
-    // Second message: Analysis and advice
     const portfolioSummary = generatePortfolioSummary(state.portfolioData);
-
     const analysisPrompt = await PromptService.getPrompt("portfolio_analysis", {
       portfolioSummary,
       psychAnalysis: state.psychologicalAnalysis,
       knowledge: state.relevantKnowledge,
     });
-
-    console.log(`🔍 Portfolio analysis prompt prepared`);
-    const psychInsight = await getAdvancedAnalysis(analysisPrompt);
-
-    // Ensure the response is properly formatted
-    const formattedInsight = psychInsight.trim();
-    if (formattedInsight) {
-      responses.push(`${formattedInsight}`);
-    }
+    const insight = (await getAdvancedAnalysis(analysisPrompt)).trim();
+    if (insight) responses.push(insight);
   } else {
-    // Handle general trading psychology questions
-    console.log(`🧠 Generating general psychology response`);
-
-    const generalPrompt = await PromptService.getPrompt("emotional_support", {
-      inputMessage: state.inputMessage,
-      psychAnalysis: state.psychologicalAnalysis,
-      knowledge: state.relevantKnowledge,
-    });
-
-    console.log(`🔍 General response prompt prepared`);
-    const response = await getAdvancedAnalysis(generalPrompt);
-
-    // Ensure the response is properly formatted
-    const formattedResponse = response.trim();
-    if (formattedResponse) {
-      responses.push(formattedResponse);
-    }
-  }
-
-  // Filter out empty responses
-  const validResponses = responses.filter((r) => r && r.trim().length > 0);
-
-  if (validResponses.length === 0) {
-    console.log(`⚠️ No valid responses generated, using fallback`);
-    validResponses.push(
-      "I'm here to support you through your trading journey. How are you feeling right now? 💙"
+    responses.push(
+      "Couldn't access your portfolio right now. Please try again shortly."
     );
   }
+  return { finalResponse: responses.filter(Boolean).join("\n\n---\n\n") };
+}
 
-  // Join multiple responses with a separator
-  const finalResponse = validResponses.join("\n\n---\n\n");
+// Psychology mode handler
+async function handle_psychology(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  const generalPrompt = await PromptService.getPrompt("emotional_support", {
+    inputMessage: state.inputMessage,
+    psychAnalysis: state.psychologicalAnalysis,
+    knowledge: state.relevantKnowledge,
+  });
+  const response = (await getAdvancedAnalysis(generalPrompt)).trim();
+  return {
+    finalResponse:
+      response ||
+      "I'm here to support you through your trading journey. How are you feeling right now? 💙",
+  };
+}
 
-  console.log(`✅ Generated ${validResponses.length} response parts`);
-  console.log(`💭 Total response length: ${finalResponse.length} characters`);
-  console.log(`📝 Response preview: ${finalResponse.substring(0, 100)}...`);
+// Financial Advice mode handler (educational, non-prescriptive)
+async function handle_financial_advice(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  const guidancePrompt = await PromptService.getPrompt("financial_guidance", {
+    inputMessage: state.inputMessage,
+    psychAnalysis: state.psychologicalAnalysis,
+    knowledge: state.relevantKnowledge,
+  });
+  const response = (await getAdvancedAnalysis(guidancePrompt)).trim();
+  return {
+    finalResponse:
+      response ||
+      "I can't provide direct buy/sell signals. We can instead define your risk per trade, entry criteria, and invalidation level. Want a simple checklist?",
+  };
+}
 
-  return { finalResponse };
+// Conditional function to decide route after analyze_and_route with better error handling
+function routeByAnalyzedIntent(state: AgentState): string {
+  const intent = state.intent;
+  console.log(`🎯 Routing decision for intent: "${intent}"`);
+
+  // Validate intent is one of the expected values
+  const validIntents = [
+    "crisis",
+    "journal",
+    "portfolio_position",
+    "financial_advice",
+    "psychology",
+  ];
+
+  if (!intent || !validIntents.includes(intent)) {
+    console.warn(
+      `⚠️ Invalid or missing intent: "${intent}", defaulting to psychology`
+    );
+    return "psychology";
+  }
+
+  // Special case: If journal is disabled, route to psychology
+  if (intent === "journal" && !JOURNAL_FEATURE_ENABLED) {
+    console.log(`📒 Journal feature disabled, routing to psychology instead`);
+    return "psychology";
+  }
+
+  console.log(`✅ Valid intent confirmed: ${intent}`);
+  return intent;
 }
 
 // Conditional function to decide whether to fetch fresh portfolio or use cache
-function shouldFetchPortfolioCondition(state: AgentState): string {
-  if (state.shouldFetchFreshPortfolio) {
-    return "fetch_and_analyze_portfolio";
-  }
-  return "analyze_message_intent";
+function portfolioDecision(state: AgentState): string {
+  return state.shouldFetchFreshPortfolio ? "fetch" : "generate";
 }
 
 // Conditional function to decide whether to search knowledge base
-function shouldSearchKnowledgeCondition(state: AgentState): string {
-  if (state.isPortfolioRequest || state.isPositionRequest) {
-    console.log(`📊 Skipping knowledge base for portfolio/position request`);
-    return "generate_final_response";
-  }
-  return "search_knowledge_base";
+function nextAfterKnowledge(state: AgentState): string {
+  return state.intent === "financial_advice" ? "fa" : "psych";
 }
 
 const graph = new StateGraph<AgentState>({
@@ -887,6 +1141,8 @@ const graph = new StateGraph<AgentState>({
     isPositionRequest: null,
     isEmotionalMessage: null,
     isCrisisMessage: null,
+    intent: null,
+    isFinancialAdviceRequest: null,
     shouldFetchFreshPortfolio: null,
     hasCachedPortfolio: null,
     isJournalRequest: null,
@@ -895,45 +1151,47 @@ const graph = new StateGraph<AgentState>({
   },
 })
   .addNode("retrieve_user_and_history", retrieve_user_and_history)
-  .addNode("route_intent", route_intent)
+  .addNode("analyze_and_route", analyze_and_route)
+  .addNode("handle_crisis", handle_crisis)
   .addNode("handle_journal", handle_journal)
   .addNode("check_cached_portfolio", check_cached_portfolio)
   .addNode("fetch_and_analyze_portfolio", fetch_and_analyze_portfolio)
-  .addNode("analyze_message_intent", analyze_message_intent)
+  .addNode("generate_portfolio_response", generate_portfolio_response)
   .addNode("search_knowledge_base", search_knowledge_base)
-  .addNode("generate_final_response", generate_final_response)
+  .addNode("handle_psychology", handle_psychology)
+  .addNode("handle_financial_advice", handle_financial_advice)
   .addEdge("__start__", "retrieve_user_and_history")
-  .addEdge("retrieve_user_and_history", "route_intent")
+  .addEdge("retrieve_user_and_history", "analyze_and_route")
   .addConditionalEdges(
-    "route_intent",
-    (s: AgentState) => (s.isJournalRequest ? "journal" : "nonjournal"),
+    "analyze_and_route",
+    (s: AgentState) => s.intent || "end",
     {
+      crisis: "handle_crisis",
       journal: "handle_journal",
-      nonjournal: "check_cached_portfolio",
+      portfolio_position: "check_cached_portfolio",
+      financial_advice: "search_knowledge_base",
+      psychology: "search_knowledge_base",
+      end: "__end__",
     }
   )
+  .addEdge("handle_crisis", "__end__")
   .addEdge("handle_journal", "__end__")
-  .addConditionalEdges(
-    "check_cached_portfolio",
-    shouldFetchPortfolioCondition,
-    {
-      fetch_and_analyze_portfolio: "fetch_and_analyze_portfolio",
-      analyze_message_intent: "analyze_message_intent",
-    }
-  )
-  .addEdge("fetch_and_analyze_portfolio", "analyze_message_intent")
-  .addConditionalEdges(
-    "analyze_message_intent",
-    shouldSearchKnowledgeCondition,
-    {
-      search_knowledge_base: "search_knowledge_base",
-      generate_final_response: "generate_final_response",
-    }
-  )
-  .addEdge("search_knowledge_base", "generate_final_response")
-  .addEdge("generate_final_response", "__end__");
+  .addConditionalEdges("check_cached_portfolio", portfolioDecision, {
+    fetch: "fetch_and_analyze_portfolio",
+    generate: "generate_portfolio_response",
+  })
+  .addEdge("fetch_and_analyze_portfolio", "generate_portfolio_response")
+  .addEdge("generate_portfolio_response", "__end__")
+  .addConditionalEdges("search_knowledge_base", nextAfterKnowledge, {
+    fa: "handle_financial_advice",
+    psych: "handle_psychology",
+  })
+  .addEdge("handle_financial_advice", "__end__")
+  .addEdge("handle_psychology", "__end__");
 
-console.log(`🚀 AI Agent graph compiled successfully with 8 nodes`);
+console.log(
+  `🚀 AI Agent graph compiled with 10 nodes (crisis | journal | portfolio_position | financial_advice | psychology)`
+);
 
 // Compile the graph
 export const mainAgent = graph.compile();

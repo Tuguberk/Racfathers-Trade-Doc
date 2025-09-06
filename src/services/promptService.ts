@@ -239,6 +239,39 @@ PSYCHOLOGICAL ANALYSIS: {psychAnalysis}
 RELEVANT KNOWLEDGE: {knowledge}
 
 Provide empathetic support focusing on their emotional state. Offer the most crucial coping strategies and psychological guidance. Be brief but meaningful.`,
+      crisis_intervention: `${this.getSystemPrompt("system_base")}
+${this.getSystemPrompt("system_output_format")}
+
+IMPORTANT: This is a crisis context. If there's any indication of self-harm, always encourage contacting local emergency services and suicide prevention hotlines. Keep tone calm, supportive, and non-judgmental. Avoid minimizing feelings.
+
+USER MESSAGE: {inputMessage}
+
+RELEVANT KNOWLEDGE: {knowledge}
+
+Write a short, compassionate response that:
+- Validates the user's feelings
+- Encourages immediate professional help and hotlines
+- Offers to stay with them while they seek help
+- Avoids providing financial advice or analysis
+- Keeps under 900 characters`,
+
+      financial_guidance: `${this.getSystemPrompt("system_base")}
+${this.getSystemPrompt("system_output_format")}
+
+IMPORTANT: Do NOT provide direct buy/sell recommendations. Provide educational, non-prescriptive guidance and decision frameworks. Reinforce risk management and psychological discipline.
+
+USER MESSAGE: {inputMessage}
+
+PSYCHOLOGICAL ANALYSIS: {psychAnalysis}
+
+RELEVANT KNOWLEDGE: {knowledge}
+
+Write a concise coaching response that:
+- Clarifies their objective, timeframe, and risk tolerance
+- Proposes a simple checklist (entry, invalidation, position size)
+- Suggests journaling the rationale and criteria
+- Encourages backtesting and using stop-losses
+- Ends with a question to move them forward`,
     };
 
     const fallback =
