@@ -83,7 +83,10 @@ export async function routeMessage(message: string): Promise<RouteResult> {
 
   // 5. Confidence gate - if below threshold but still journal-ish, default to ADD_ENTRY
   const MIN_CONFIDENCE = 0.6;
-  if (nlp.intent === "NONE" || nlp.confidence < MIN_CONFIDENCE) {
+  if (nlp.intent === "SET_GOAL") {
+    return { route: "JOURNAL", nlp: { ...nlp, intent: "SET_GOAL" } };
+  }
+  if (nlp.intent === "NONE" || (nlp.confidence ?? 0) < MIN_CONFIDENCE) {
     // Still looks like journal based on keywords, so treat as ADD_ENTRY
     return {
       route: "JOURNAL",

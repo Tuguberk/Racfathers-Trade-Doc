@@ -465,8 +465,12 @@ async function route_intent(state: AgentState): Promise<Partial<AgentState>> {
   if (nlp.crisis_flag) return { isCrisisMessage: true };
 
   const MIN = 0.6;
+  // Prioritize explicit goal setting regardless of confidence
+  const conf = nlp.confidence ?? 0;
   const action =
-    nlp.intent === "NONE" || nlp.confidence < MIN
+    nlp.intent === "SET_GOAL"
+      ? "SET_GOAL"
+      : nlp.intent === "NONE" || conf < MIN
       ? "ADD_ENTRY"
       : (nlp.intent as any);
   return {
@@ -490,7 +494,11 @@ async function handle_journal(state: AgentState): Promise<Partial<AgentState>> {
     entryDraft: { date: nlp?.date, tags: nlp?.tags },
     goalDraft:
       nlp?.intent === "SET_GOAL"
-        ? { text: nlp.goal_text, due: nlp.goal_due, target: nlp.goal_target }
+        ? {
+            text: nlp.goal_text || state.inputMessage,
+            due: nlp.goal_due,
+            target: nlp.goal_target,
+          }
         : undefined,
   });
   return {
@@ -611,11 +619,13 @@ async function analyze_message_intent(
   console.log(`🔍 Step 4: Analyzing message intent`);
   console.log(`📝 Current message: "${state.inputMessage}"`);
 
-  const isPortfolioReq = isPortfolioRequest(state.inputMessage);
+  const isPosReq = isPositionRequest(state.inputMessage);
+  const isPortfolioReq = !isPosReq && isPortfolioRequest(state.inputMessage);
   const isEmotionalReq = isEmotionalMessage(state.inputMessage);
   const crisisResult = isCrisisMessage(state.inputMessage);
   const isCrisisReq = crisisResult.isCrisis;
 
+  console.log(`🎯 Position request detected: ${isPosReq}`);
   console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
   console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
   console.log(`🚨 CRISIS MESSAGE DETECTED: ${isCrisisReq}`);
@@ -640,15 +650,24 @@ async function analyze_message_intent(
     };
   }
 
-  console.log(`📊 Portfolio request detected: ${isPortfolioReq}`);
-  console.log(`💭 Emotional message detected: ${isEmotionalReq}`);
-
+  // Skip psychological analysis for direct position requests
+  if (isPosReq) {
+    console.log(`🎯 Position request: skipping psychology & knowledge base`);
+    return {
+      psychologicalAnalysis: "",
+      isPortfolioRequest: false,
+      isPositionRequest: true,
+      isEmotionalMessage: isEmotionalReq,
+      relevantKnowledge: "",
+    };
+  }
   // Skip psychological analysis for portfolio requests
   if (isPortfolioReq) {
     console.log(`📊 Skipping psychological analysis for portfolio request`);
     return {
       psychologicalAnalysis: "", // Empty for portfolio requests
-      isPortfolioRequest: isPortfolioReq,
+      isPortfolioRequest: true,
+      isPositionRequest: false,
       isEmotionalMessage: isEmotionalReq,
       relevantKnowledge: "", // Skip knowledge base for portfolio requests
     };
@@ -668,6 +687,7 @@ async function analyze_message_intent(
   return {
     psychologicalAnalysis: psychAnalysis,
     isPortfolioRequest: isPortfolioReq,
+    isPositionRequest: isPosReq,
     isEmotionalMessage: isEmotionalReq,
     isCrisisMessage: isCrisisReq,
   };
@@ -773,8 +793,8 @@ async function generate_final_response(
 
     // Add cache indicator to portfolio display
     const cacheIndicator = state.hasCachedPortfolio
-      ? " (📋 Cached)"
-      : " (🔄 Live)";
+      ? " 📋 Cached"
+      : " 🔄 Live";
 
     // First message: Portfolio table
     const portfolioTable = formatPortfolioTable(state.portfolioData);
@@ -847,8 +867,8 @@ function shouldFetchPortfolioCondition(state: AgentState): string {
 
 // Conditional function to decide whether to search knowledge base
 function shouldSearchKnowledgeCondition(state: AgentState): string {
-  if (state.isPortfolioRequest) {
-    console.log(`📊 Portfolio request: skipping knowledge base search`);
+  if (state.isPortfolioRequest || state.isPositionRequest) {
+    console.log(`📊 Skipping knowledge base for portfolio/position request`);
     return "generate_final_response";
   }
   return "search_knowledge_base";
@@ -864,6 +884,7 @@ const graph = new StateGraph<AgentState>({
     relevantKnowledge: null,
     finalResponse: null,
     isPortfolioRequest: null,
+    isPositionRequest: null,
     isEmotionalMessage: null,
     isCrisisMessage: null,
     shouldFetchFreshPortfolio: null,

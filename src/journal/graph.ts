@@ -1,52 +1,318 @@
 import { StateGraph, END } from "@langchain/langgraph";
 import { prisma } from "../db/prisma.js";
 import { JournalState } from "./state.js";
-import { getAdvancedAnalysis } from "../services/llmService.js";
+import {
+  getAdvancedAnalysis,
+  getUtilityResponse,
+} from "../services/llmService.js";
+
+// Natural language due date parser (lightweight)
+function parseDueDate(raw: string | undefined): Date | null {
+  if (!raw) return null;
+  const input = raw.trim().toLowerCase();
+  const now = new Date();
+
+  const iso = input.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+  if (iso) {
+    const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00Z`);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  const rel = input.match(
+    /^in\s+(\d+)\s+(day|days|week|weeks|month|months|year|years)$/
+  );
+  if (rel) {
+    const amt = parseInt(rel[1]);
+    const unit = rel[2];
+    const d = new Date(now);
+    switch (unit) {
+      case "day":
+      case "days":
+        d.setDate(d.getDate() + amt);
+        break;
+      case "week":
+      case "weeks":
+        d.setDate(d.getDate() + amt * 7);
+        break;
+      case "month":
+      case "months":
+        d.setMonth(d.getMonth() + amt);
+        break;
+      case "year":
+      case "years":
+        d.setFullYear(d.getFullYear() + amt);
+        break;
+    }
+    return d;
+  }
+
+  const plainRel = input.match(
+    /^(\d+)\s+(day|days|week|weeks|month|months|year|years)$/
+  );
+  if (plainRel) {
+    const amt = parseInt(plainRel[1]);
+    const unit = plainRel[2];
+    const d = new Date(now);
+    switch (unit) {
+      case "day":
+      case "days":
+        d.setDate(d.getDate() + amt);
+        break;
+      case "week":
+      case "weeks":
+        d.setDate(d.getDate() + amt * 7);
+        break;
+      case "month":
+      case "months":
+        d.setMonth(d.getMonth() + amt);
+        break;
+      case "year":
+      case "years":
+        d.setFullYear(d.getFullYear() + amt);
+        break;
+    }
+    return d;
+  }
+
+  if (input === "next month") {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() + 1, 1);
+    return d;
+  }
+  if (input === "next week") {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 7);
+    return d;
+  }
+  if (input === "next year") {
+    const d = new Date(now);
+    d.setFullYear(d.getFullYear() + 1, 0, 1);
+    return d;
+  }
+
+  if (input === "end of month") {
+    return new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  }
+  if (input === "end of year") {
+    return new Date(now.getFullYear(), 11, 31);
+  }
+
+  const months = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ];
+  const mMatch = input.match(
+    /^(?:by\s+)?(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?$/
+  );
+  if (mMatch) {
+    const idx = months.indexOf(mMatch[1]);
+    let year = mMatch[2] ? parseInt(mMatch[2]) : now.getFullYear();
+    if (!mMatch[2] && idx < now.getMonth()) year += 1; // roll forward
+    return new Date(year, idx, 1);
+  }
+
+  const qMatch = input.match(/^q([1-4])\s+(\d{4})$/);
+  if (qMatch) {
+    const q = parseInt(qMatch[1]);
+    const year = parseInt(qMatch[2]);
+    return new Date(year, (q - 1) * 3, 1);
+  }
+
+  const byYear = input.match(/^by\s+(\d{4})$/);
+  if (byYear) {
+    return new Date(parseInt(byYear[1]), 11, 31);
+  }
+
+  const fallback = new Date(raw);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
 
 // Parse and extract data for journal entries
 async function journal_parse(
   state: JournalState
 ): Promise<Partial<JournalState>> {
   console.log("📒 Parsing journal intent and extracting data");
+  console.log("Journal State:\n", state);
 
-  const { inputMessage, journalAction, entryDraft } = state;
+  const { inputMessage, journalAction, entryDraft, goalDraft } = state;
 
-  // Extract data based on the message for ADD_ENTRY
+  // For SET_GOAL, use LLM to extract goal information
+  if (journalAction === "SET_GOAL") {
+    console.log("🎯 Parsing SET_GOAL with LLM");
+
+    const goalExtractionPrompt = `Extract goal information from this message and return STRICT JSON:
+
+Message: """${inputMessage}"""
+
+Extract:
+- goal_text: The main goal (required)
+- target: Specific target/metric if mentioned
+- due_date: When they want to achieve it
+- timeframe: How long they have (1 year, 6 months, etc.)
+
+Return JSON format:
+{
+  "goal_text": "string",
+  "target": "string or null", 
+  "due_date": "string or null",
+  "timeframe": "string or null"
+}`;
+
+    try {
+      const llmResponse = await getUtilityResponse(goalExtractionPrompt);
+      const cleanResponse = llmResponse.replace(
+        /^\s*```(?:json)?\s*|\s*```\s*$/g,
+        ""
+      );
+      const goalData = JSON.parse(cleanResponse);
+
+      console.log("🎯 LLM extracted goal data:", goalData);
+
+      return {
+        goalDraft: {
+          text: goalData.goal_text || inputMessage,
+          target: goalData.target || undefined,
+          due: goalData.due_date || undefined,
+        },
+      };
+    } catch (error) {
+      console.error("❌ Error parsing goal with LLM:", error);
+      // Fallback to simple extraction
+      return {
+        goalDraft: {
+          text: inputMessage,
+          target: undefined,
+          due: undefined,
+        },
+      };
+    }
+  }
+
+  // For ADD_ENTRY, use LLM to extract structured data
   if (journalAction === "ADD_ENTRY") {
-    const msg = inputMessage.toLowerCase();
-    const draft = entryDraft || {};
+    console.log("📝 Parsing ADD_ENTRY with LLM");
+    const schemaExample =
+      '{"market":null,"emotions":null,"mistakes":null,"lessons":null,"tags":["..."],"trades":[{"symbol":"BTC","direction":"long","r":2.1,"pnl":150}]}';
+    const basePrompt = `You are a strict JSON extraction engine. OUTPUT ONLY VALID MINIFIED JSON MATCHING THE SCHEMA FIELDS. NO EXPLANATION.
+Message: """${inputMessage}"""
+Extract the following fields (use null if absent):
+market, emotions, mistakes, lessons, tags (array of lowercase keywords), trades (array of objects: symbol, direction (long/short), r (number), pnl (number)).
+Rules:
+- Output ONLY JSON. No backticks. No prose.
+- tags: derive simple keywords (e.g., panic, mistake, fear) only if present.
+- Do not hallucinate trades; only include if explicitly described.
+Return JSON now:
+${schemaExample}`;
 
-    // Simple keyword extraction
-    const emotions =
-      msg.match(/(?:feel|feeling|emotion|mood)[s]?[:\s]+([^\.]+)/)?.[1] ||
-      draft.emotions;
-    const mistakes =
-      msg.match(/(?:mistake|error|wrong)[s]?[:\s]+([^\.]+)/)?.[1] ||
-      draft.mistakes;
-    const lessons =
-      msg.match(/(?:lesson|learn|takeaway)[s]?[:\s]+([^\.]+)/)?.[1] ||
-      draft.lessons;
-    const market =
-      msg.match(/(?:market|trading|btc|eth|crypto)[:\s]+([^\.]+)/)?.[1] ||
-      draft.market;
+    async function tryExtract(attempt: number): Promise<any | null> {
+      try {
+        const raw = await getUtilityResponse(
+          basePrompt + (attempt > 1 ? `\nREMINDER: ONLY JSON.` : "")
+        );
+        const clean = raw.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "").trim();
+        const firstBrace = clean.indexOf("{");
+        const lastBrace = clean.lastIndexOf("}");
+        if (firstBrace === -1 || lastBrace === -1) throw new Error("No braces");
+        const jsonSlice = clean.substring(firstBrace, lastBrace + 1);
+        return JSON.parse(jsonSlice);
+      } catch (e) {
+        console.warn(
+          `⚠️ ADD_ENTRY parse attempt ${attempt} failed:`,
+          (e as Error).message
+        );
+        return null;
+      }
+    }
 
-    // Extract tags from "tags:" patterns
-    const tagMatch = msg.match(/tags?[:\s]+([^\.]+)/);
-    const tags = tagMatch
-      ? tagMatch[1].split(/[,\s]+/).filter((t) => t.length > 0)
-      : draft.tags || [];
+    let entryData = await tryExtract(1);
+    if (!entryData) entryData = await tryExtract(2);
+    if (!entryData) {
+      // Last resort: minimal heuristic extraction
+      const lower = inputMessage.toLowerCase();
+      const tagCandidates = [
+        "mistake",
+        "panic",
+        "fear",
+        "confidence",
+        "plan",
+        "discipline",
+      ];
+      const foundTags = tagCandidates.filter((t) => lower.includes(t));
+      return {
+        entryDraft: {
+          date: new Date().toISOString(),
+          market: lower.includes("btc")
+            ? "BTC"
+            : lower.includes("eth")
+            ? "ETH"
+            : undefined,
+          emotions: inputMessage,
+          mistakes: lower.includes("mistake") ? inputMessage : undefined,
+          lessons: undefined,
+          tags: foundTags,
+          trades: undefined,
+        },
+      };
+    }
 
+    console.log("📝 Robust extraction data:", entryData);
     return {
       entryDraft: {
-        ...draft,
-        date: draft.date || new Date().toISOString(),
-        emotions,
-        mistakes,
-        lessons,
-        market,
-        tags,
+        date: new Date().toISOString(),
+        market: entryData.market ?? undefined,
+        emotions: entryData.emotions ?? inputMessage,
+        mistakes: entryData.mistakes ?? undefined,
+        lessons: entryData.lessons ?? undefined,
+        tags: Array.isArray(entryData.tags) ? entryData.tags : [],
+        trades: Array.isArray(entryData.trades) ? entryData.trades : null,
       },
     };
+  }
+
+  // For other actions, use simple parsing or LLM as needed
+  if (journalAction === "GET_ENTRIES") {
+    console.log("🔍 Parsing GET_ENTRIES filters");
+
+    const filterExtractionPrompt = `Extract date range and tag filters from this message:
+
+Message: """${inputMessage}"""
+
+Return JSON format:
+{
+  "from": "YYYY-MM-DD or null",
+  "to": "YYYY-MM-DD or null", 
+  "tag": "string or null"
+}`;
+
+    try {
+      const llmResponse = await getUtilityResponse(filterExtractionPrompt);
+      const cleanResponse = llmResponse.replace(
+        /^\s*```(?:json)?\s*|\s*```\s*$/g,
+        ""
+      );
+      const filterData = JSON.parse(cleanResponse);
+
+      return {
+        filters: {
+          from: filterData.from,
+          to: filterData.to,
+          tag: filterData.tag,
+        },
+      };
+    } catch (error) {
+      console.error("❌ Error parsing filters:", error);
+      return { filters: {} };
+    }
   }
 
   return state;
@@ -176,12 +442,18 @@ async function journal_set_goal(
   }
 
   try {
+    const parsedDue = parseDueDate(goalDraft.due);
+    if (goalDraft.due && !parsedDue) {
+      console.log(
+        `⚠️ Unable to parse due date '${goalDraft.due}', storing null.`
+      );
+    }
     const goal = await prisma.journalGoal.create({
       data: {
         userId,
         text: goalDraft.text,
         target: goalDraft.target,
-        due: goalDraft.due ? new Date(goalDraft.due) : null,
+        due: parsedDue,
         status: "ACTIVE",
         progress: 0,
       },
@@ -189,7 +461,11 @@ async function journal_set_goal(
 
     let response = `🎯 New goal set!\n📝 **${goalDraft.text}**\n`;
     if (goalDraft.target) response += `🎯 Target: ${goalDraft.target}\n`;
-    if (goalDraft.due) response += `📅 Due: ${goalDraft.due}\n`;
+    if (goalDraft.due && goal.due) {
+      response += `📅 Due: ${goal.due.toISOString().split("T")[0]}\n`;
+    } else if (goalDraft.due && !goal.due) {
+      response += `📅 (Due ifadesi anlaşılamadı: "${goalDraft.due}")\n`;
+    }
 
     return { finalResponse: response };
   } catch (error) {

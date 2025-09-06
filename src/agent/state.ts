@@ -7,6 +7,7 @@ export interface AgentState {
   relevantKnowledge: string;
   finalResponse: string;
   isPortfolioRequest?: boolean;
+  isPositionRequest?: boolean;
   isEmotionalMessage?: boolean;
   isCrisisMessage?: boolean; // Critical: Crisis/suicide detection
   shouldFetchFreshPortfolio?: boolean;
