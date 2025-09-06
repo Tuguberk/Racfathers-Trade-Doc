@@ -108,34 +108,12 @@ router.get("/api/journal/:id", async (req, res) => {
       exchangeData = null;
     }
 
-    // Fetch active positions
-    try {
-      positions = await fetchActivePositions(journalEntry.userId);
-    } catch (error) {
-      console.warn("Error fetching positions:", error);
-      positions = [];
-    }
-
     return res.json({
       success: true,
       data: {
         ...journalEntry,
         assets: assets,
         exchangeData: exchangeData,
-        positions: positions,
-        summary: {
-          walletsCount: walletAddresses.length,
-          exchangesCount: exchangeData?.exchanges?.length || 0,
-          totalPositions: positions.length,
-          totalWalletValue: assets.reduce(
-            (sum, asset) => sum + asset.totalUSDValue,
-            0
-          ),
-          totalExchangeValue:
-            exchangeData?.combinedSummary?.exchangesTotalUSDT || 0,
-          totalUnrealizedPnl:
-            exchangeData?.combinedSummary?.totalUnrealizedPnl || 0,
-        },
       },
     });
   } catch (error) {
