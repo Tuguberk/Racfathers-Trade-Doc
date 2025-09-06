@@ -12,6 +12,7 @@ cloudflared tunnel --url http://localhost:3000
 
 - Secure onboarding via unique, single-use URL (5-minute TTL in Redis)
 - AES-256-GCM encryption for Binance API Key/Secret (stored in Postgres)
+- **🎤 Voice Message Support** - Send voice messages via WhatsApp, automatically transcribed using ElevenLabs Speech-to-Text
 - LangGraph agent pipeline for analysis and response generation
 - CCXT-powered live balance fetch from Binance
 - pgvector similarity search on curated knowledge articles
@@ -24,6 +25,7 @@ cloudflared tunnel --url http://localhost:3000
 - Redis (token TTL)
 - CCXT (Binance)
 - Twilio (WhatsApp)
+- **ElevenLabs** (Speech-to-Text for voice messages)
 - OpenRouter (LLM, embeddings)
 - LangGraph.js
 
@@ -49,7 +51,9 @@ Copy `.env.example` to `.env` and fill values. Generate a 32-byte AES key (hex):
 openssl rand -hex 32
 ```
 
-Set `OPENROUTER_API_KEY`, `AES_ENCRYPTION_KEY`, and Twilio env vars if you want outbound confirmation messages.
+Set `OPENROUTER_API_KEY`, `ELEVENLABS_API_KEY`, `AES_ENCRYPTION_KEY`, and Twilio env vars if you want outbound confirmation messages.
+
+**Voice Message Support**: To enable voice message transcription, you'll need an ElevenLabs API key. Get one from [ElevenLabs](https://elevenlabs.io/) and add it to your `.env` file.
 
 4. Start Postgres (pgvector) and Redis
 
@@ -92,7 +96,33 @@ Set your Twilio WhatsApp Sandbox or number to POST to:
 {APP_BASE_URL}/api/whatsapp/webhook
 ```
 
-Incoming params used: `From` (e.g., `whatsapp:+15551234567`), `Body` (message text).
+Incoming params used: `From` (e.g., `whatsapp:+15551234567`), `Body` (message text), `MediaUrl0`, `MediaContentType0`, `NumMedia` (for voice messages).
+
+## Voice Messages 🎤
+
+Users can send voice messages directly in WhatsApp! The system:
+
+1. **Receives** voice messages via Twilio's media webhook parameters
+2. **Downloads** the audio file using Twilio's media URL with authentication
+3. **Transcribes** the audio using ElevenLabs Speech-to-Text API
+4. **Processes** the transcribed text exactly like a regular text message
+5. **Responds** through the normal agent pipeline
+
+### Supported Audio Formats
+
+- MP3 (audio/mpeg, audio/mp3)
+- WAV (audio/wav, audio/wave, audio/x-wav)
+- OGG (audio/ogg)
+- WebM (audio/webm)
+- MP4 (audio/mp4)
+- M4A (audio/m4a)
+- AAC (audio/aac)
+- FLAC (audio/flac)
+
+### Requirements
+
+- ElevenLabs API key in environment variables (`ELEVENLABS_API_KEY`)
+- Twilio WhatsApp webhook configured to include media URLs
 
 ## Onboarding Flow
 
@@ -119,6 +149,7 @@ Graph: `src/agent/mainAgent.ts`
 - `src/services/cryptoService.ts` — AES-256-GCM encrypt/decrypt
 - `src/services/redisService.ts` — Redis TTL token helpers
 - `src/services/binanceService.ts` — CCXT portfolio fetching
+- `src/services/speechService.ts` — ElevenLabs Speech-to-Text for voice messages
 - `src/services/llmService.ts` — OpenRouter wrappers (chat + embeddings)
 - `src/agent/*` — LangGraph agent & state
 - `src/db/prisma.ts` — Prisma client

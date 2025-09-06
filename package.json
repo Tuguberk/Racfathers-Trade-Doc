@@ -15,6 +15,7 @@
     "seed": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.14.0",
     "@langchain/langgraph": "^0.4.9",
     "@langchain/langgraph-sdk": "^0.1.1",
     "@prisma/client": "^6.15.0",
