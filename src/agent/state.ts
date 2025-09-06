@@ -11,4 +11,9 @@ export interface AgentState {
   isCrisisMessage?: boolean; // Critical: Crisis/suicide detection
   shouldFetchFreshPortfolio?: boolean;
   hasCachedPortfolio?: boolean;
+
+  // Journal-related fields
+  isJournalRequest?: boolean;
+  journalAction?: string;
+  journalNLP?: any;
 }

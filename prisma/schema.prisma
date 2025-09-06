@@ -106,3 +106,55 @@ model AgentPrompt {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+model JournalEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  market    String?
+  emotions  String?
+  mistakes  String?
+  lessons   String?
+  tags      String[] @db.Text
+  trades    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+}
+
+model JournalGoal {
+  id        String           @id @default(cuid())
+  userId    String
+  text      String
+  target    String?
+  due       DateTime?
+  status    GoalStatus       @default(ACTIVE)
+  progress  Int              @default(0)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  checkIns  JournalCheckIn[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model JournalCheckIn {
+  id        String      @id @default(cuid())
+  userId    String
+  goalId    String
+  note      String?
+  score     Int?
+  createdAt DateTime    @default(now())
+  goal      JournalGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([goalId])
+}

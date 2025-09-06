@@ -46,3 +46,9 @@ export const config = {
 export function generateToken(): string {
   return crypto.randomUUID();
 }
+
+export const JOURNAL_FEATURE_ENABLED =
+  process.env.JOURNAL_FEATURE_ENABLED !== "false";
+export const JOURNAL_REMINDERS_ENABLED =
+  process.env.JOURNAL_REMINDERS_ENABLED === "true";
+export const ADMIN_WHATSAPP_NUMBER = process.env.ADMIN_WHATSAPP_NUMBER || "";

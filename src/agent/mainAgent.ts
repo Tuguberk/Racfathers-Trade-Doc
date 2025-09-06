@@ -18,6 +18,10 @@ import {
   deleteCachedPortfolio,
 } from "../services/redisService.js";
 import { sendWhatsAppNotification } from "../services/notificationService.js";
+import { journalGraph } from "../journal/graph.js";
+import { looksLikeJournal } from "../journal/intent_keywords.js";
+import { classifyJournalIntent, JournalNLP } from "../journal/llm_intent.js";
+import { JOURNAL_FEATURE_ENABLED } from "../config.js";
 
 // Helper function to detect crisis/suicide-related messages
 function isCrisisMessage(message: string): {
@@ -447,6 +451,54 @@ async function retrieve_user_and_history(
   };
 }
 
+// Journal routing functions
+async function route_intent(state: AgentState): Promise<Partial<AgentState>> {
+  if (!JOURNAL_FEATURE_ENABLED) return { isJournalRequest: false };
+
+  // Crisis has priority (reuse existing helper)
+  const crisis = isCrisisMessage(state.inputMessage);
+  if (crisis.isCrisis) return { isCrisisMessage: true };
+
+  if (!looksLikeJournal(state.inputMessage)) return { isJournalRequest: false };
+
+  const nlp = await classifyJournalIntent(state.inputMessage);
+  if (nlp.crisis_flag) return { isCrisisMessage: true };
+
+  const MIN = 0.6;
+  const action =
+    nlp.intent === "NONE" || nlp.confidence < MIN
+      ? "ADD_ENTRY"
+      : (nlp.intent as any);
+  return {
+    isJournalRequest: true,
+    journalAction: action,
+    journalNLP: nlp as any,
+  };
+}
+
+async function handle_journal(state: AgentState): Promise<Partial<AgentState>> {
+  const nlp = (state as any).journalNLP as JournalNLP | undefined;
+  const result = await journalGraph.invoke({
+    userId: state.userId,
+    inputMessage: state.inputMessage,
+    isJournalRequest: true,
+    journalAction:
+      nlp?.intent && nlp.intent !== "NONE" ? (nlp.intent as any) : "ADD_ENTRY",
+    filters: nlp?.range
+      ? { from: nlp.range.from, to: nlp.range.to }
+      : undefined,
+    entryDraft: { date: nlp?.date, tags: nlp?.tags },
+    goalDraft:
+      nlp?.intent === "SET_GOAL"
+        ? { text: nlp.goal_text, due: nlp.goal_due, target: nlp.goal_target }
+        : undefined,
+  });
+  return {
+    finalResponse:
+      (result as any).finalResponse || "📒 Journal operation completed.",
+  };
+}
+
 async function check_cached_portfolio(
   state: AgentState
 ): Promise<Partial<AgentState>> {
@@ -816,16 +868,30 @@ const graph = new StateGraph<AgentState>({
     isCrisisMessage: null,
     shouldFetchFreshPortfolio: null,
     hasCachedPortfolio: null,
+    isJournalRequest: null,
+    journalAction: null,
+    journalNLP: null,
   },
 })
   .addNode("retrieve_user_and_history", retrieve_user_and_history)
+  .addNode("route_intent", route_intent)
+  .addNode("handle_journal", handle_journal)
   .addNode("check_cached_portfolio", check_cached_portfolio)
   .addNode("fetch_and_analyze_portfolio", fetch_and_analyze_portfolio)
   .addNode("analyze_message_intent", analyze_message_intent)
   .addNode("search_knowledge_base", search_knowledge_base)
   .addNode("generate_final_response", generate_final_response)
   .addEdge("__start__", "retrieve_user_and_history")
-  .addEdge("retrieve_user_and_history", "check_cached_portfolio")
+  .addEdge("retrieve_user_and_history", "route_intent")
+  .addConditionalEdges(
+    "route_intent",
+    (s: AgentState) => (s.isJournalRequest ? "journal" : "nonjournal"),
+    {
+      journal: "handle_journal",
+      nonjournal: "check_cached_portfolio",
+    }
+  )
+  .addEdge("handle_journal", "__end__")
   .addConditionalEdges(
     "check_cached_portfolio",
     shouldFetchPortfolioCondition,
@@ -846,7 +912,7 @@ const graph = new StateGraph<AgentState>({
   .addEdge("search_knowledge_base", "generate_final_response")
   .addEdge("generate_final_response", "__end__");
 
-console.log(`🚀 AI Agent graph compiled successfully with 6 nodes`);
+console.log(`🚀 AI Agent graph compiled successfully with 8 nodes`);
 
 // Compile the graph
 export const mainAgent = graph.compile();
