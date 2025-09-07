@@ -40,7 +40,7 @@ export const sampleState: AgentState = {
 
 // Studio configuration
 export const studioConfig = {
-  title: "Psy-Trader AI Agent",
+  title: "Rac'fella AI Agent",
   description:
     "A 5-node AI agent that combines portfolio analysis with psychological trading advice",
   nodes: [

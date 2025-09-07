@@ -3,9 +3,46 @@ import { prisma } from "../db/prisma.js";
 import { mainAgent } from "../agent/mainAgent.js";
 import { config, generateToken } from "../config.js";
 import { setToken } from "../services/redisService.js";
+import { sendWhatsAppNotification } from "../services/notificationService.js";
+import { speechService } from "../services/speechService.js";
 import twilio from "twilio";
+import fetch from "node-fetch";
 
 const router = Router();
+
+// Helper function to download audio from Twilio
+async function downloadAudioFromTwilio(
+  mediaUrl: string
+): Promise<{ buffer: Buffer; contentType: string }> {
+  try {
+    console.log(`🎵 Downloading audio from Twilio: ${mediaUrl}`);
+
+    const response = await fetch(mediaUrl, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          `${config.twilio.accountSid}:${config.twilio.authToken}`
+        ).toString("base64")}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download audio: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const contentType = response.headers.get("content-type") || "audio/ogg";
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    console.log(
+      `✅ Audio downloaded successfully. Size: ${buffer.length} bytes, Type: ${contentType}`
+    );
+    return { buffer, contentType };
+  } catch (error) {
+    console.error("❌ Error downloading audio from Twilio:", error);
+    throw error;
+  }
+}
 
 // Helper function to intelligently split long messages
 function splitLongMessage(message: string, maxLength: number = 1200): string[] {
@@ -64,13 +101,19 @@ function splitLongMessage(message: string, maxLength: number = 1200): string[] {
 router.post("/api/whatsapp/webhook", async (req, res) => {
   const from = String((req.body as any)?.From || ""); // e.g., 'whatsapp:+15551234567'
   const body = String((req.body as any)?.Body || "").trim();
+  const mediaUrl = String((req.body as any)?.MediaUrl0 || "");
+  const mediaContentType = String((req.body as any)?.MediaContentType0 || "");
+  const numMedia = Number((req.body as any)?.NumMedia || 0);
   const twiml = new twilio.twiml.MessagingResponse();
 
   console.log(`📱 New WhatsApp message received from: ${from}`);
   console.log(`💬 Message content: "${body}"`);
+  console.log(`🎵 Media URL: "${mediaUrl}"`);
+  console.log(`🎵 Media Content Type: "${mediaContentType}"`);
+  console.log(`🎵 Number of Media: ${numMedia}`);
 
-  if (!from || !body) {
-    console.log("⚠️  Empty message or sender, ignoring");
+  if (!from) {
+    console.log("⚠️  No sender information, ignoring");
     return res.status(200).send(); // Just return 200 without any response
   }
 
@@ -87,12 +130,212 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     const url = `${config.appBaseUrl}/onboard/${token}`;
     console.log(`🔗 Generated onboarding token: ${token}`);
     twiml.message(
-      `Welcome to Psy-Trader 👋\n\nTo begin, securely connect your Binance API keys here (link valid 5 minutes):\n${url}`
+      `Welcome to Rac'fella 👋\n\nTo begin, securely connect your API keys here (link valid 5 minutes):\n${url}`
     );
-    return res.type("text/xml").send(twiml.toString());
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
   }
 
   console.log(`👤 Existing user found: ${user.id} (${from})`);
+
+  let messageContent = body;
+
+  // Handle voice messages
+  if (numMedia > 0 && mediaUrl && mediaContentType) {
+    if (mediaContentType.startsWith("audio/")) {
+      try {
+        console.log(`🎤 Processing voice message from user: ${user.id}`);
+        // twiml.message("🎤 Processing your voice message...");
+        res.set("Content-Type", "text/xml; charset=utf-8");
+        const twimlResponse = res.send(twiml.toString());
+
+        // Download and process audio in background
+        try {
+          const { buffer, contentType } = await downloadAudioFromTwilio(
+            mediaUrl
+          );
+
+          if (!speechService.isSupportedAudioFormat(contentType)) {
+            await sendWhatsAppNotification(
+              from,
+              "❌ Sorry, this audio format is not supported. Please try sending your message as text or in a different audio format."
+            );
+            return twimlResponse;
+          }
+
+          const transcribedText = await speechService.speechToText(
+            buffer,
+            contentType
+          );
+
+          if (!transcribedText || transcribedText.trim().length === 0) {
+            await sendWhatsAppNotification(
+              from,
+              "❌ I couldn't understand your voice message. Could you please try again or send it as a text message?"
+            );
+            return twimlResponse;
+          }
+
+          console.log(
+            `✅ Voice message transcribed successfully: "${transcribedText}"`
+          );
+
+          // Use the transcribed text as the message content and process it
+          await processTranscribedMessage(user, transcribedText, from);
+        } catch (error: any) {
+          console.error("Error processing voice message:", error);
+          await sendWhatsAppNotification(
+            from,
+            "❌ Sorry, I couldn't process your voice message. Please try again or send your message as text."
+          );
+        }
+
+        return twimlResponse;
+      } catch (error: any) {
+        console.error("Error handling voice message:", error);
+        twiml.message(
+          "❌ Sorry, I couldn't process your voice message. Please try again or send your message as text."
+        );
+        res.set("Content-Type", "text/xml; charset=utf-8");
+        return res.send(twiml.toString());
+      }
+    } else {
+      console.log(`⚠️ Unsupported media type: ${mediaContentType}`);
+      twiml.message(
+        "❌ Sorry, I can only process voice messages. Please send your message as text or audio."
+      );
+      res.set("Content-Type", "text/xml; charset=utf-8");
+      return res.send(twiml.toString());
+    }
+  }
+
+  // If no media or body text is empty, ignore
+  if (!messageContent) {
+    console.log("⚠️  Empty message content, ignoring");
+    return res.status(200).send(); // Just return 200 without any response
+  }
+
+  // Check for special commands before processing with AI agent
+  const lowerBody = messageContent.toLowerCase().trim();
+
+  // Handle help command
+  if (
+    lowerBody === "help" ||
+    lowerBody === "commands" ||
+    lowerBody === "menu"
+  ) {
+    console.log(`ℹ️ Help command detected from: ${from}`);
+    twiml.message(
+      `🤖 *Rac'fella Commands*\n\n💰 *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
+    );
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
+  }
+
+  // Handle "show positions" or "active positions" command
+  if (
+    (lowerBody.includes("show") && lowerBody.includes("position")) ||
+    lowerBody.includes("active position") ||
+    lowerBody.includes("my position") ||
+    lowerBody.includes("futures") ||
+    lowerBody === "positions"
+  ) {
+    console.log(`🎯 Positions command detected from: ${from}`);
+    twiml.message("🎯 Fetching your active positions...");
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    const twimlResponse = res.send(twiml.toString());
+
+    // Process positions in background
+    try {
+      const { fetchActivePositions } = await import(
+        "../services/multiExchangeService.js"
+      );
+      const { formatPositionsTable } = await import("../agent/mainAgent.js");
+      const positions = await fetchActivePositions(user.id);
+
+      const positionsTable = formatPositionsTable(positions);
+
+      await sendWhatsAppNotification(from, positionsTable);
+    } catch (error: any) {
+      console.error("Error fetching positions:", error);
+      await sendWhatsAppNotification(
+        from,
+        "❌ Sorry, I couldn't fetch your positions. Please make sure your exchange API keys are configured correctly."
+      );
+    }
+
+    return twimlResponse;
+  }
+
+  // Handle "change api key" or "change api keys" command
+  if (lowerBody.includes("change api") || lowerBody.includes("update api")) {
+    console.log(`🔄 API key change command detected from: ${from}`);
+    try {
+      const response = await fetch(`${config.appBaseUrl}/api/change-api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsappNumber: from }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          url: string;
+          message: string;
+        };
+        twiml.message(
+          `🔄 Update Your API Keys\n\nClick the link below to securely update your API credentials (valid for 5 minutes):\n\n${data.url}\n\n⚡ This will replace your current API keys with new ones.`
+        );
+      } else {
+        twiml.message(
+          "❌ Sorry, I couldn't generate an API key update link. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error("Error generating API key change link:", error);
+      twiml.message(
+        "❌ There was an error processing your request. Please try again."
+      );
+    }
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
+  }
+
+  // Handle "change wallets" or "manage wallets" command
+  if (
+    lowerBody.includes("change wallet") ||
+    lowerBody.includes("manage wallet") ||
+    lowerBody.includes("update wallet")
+  ) {
+    console.log(`🔄 Wallet change command detected from: ${from}`);
+    try {
+      const response = await fetch(`${config.appBaseUrl}/api/change-wallets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsappNumber: from }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          url: string;
+          message: string;
+        };
+        twiml.message(
+          `🔄 Manage Your Wallets\n\nClick the link below to update your crypto wallet addresses (valid for 5 minutes):\n\n${data.url}\n\n💡 You can add, remove, or replace your current wallet addresses.`
+        );
+      } else {
+        twiml.message(
+          "❌ Sorry, I couldn't generate a wallet management link. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error("Error generating wallet change link:", error);
+      twiml.message(
+        "❌ There was an error processing your request. Please try again."
+      );
+    }
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twiml.toString());
+  }
 
   // Save incoming message
   await prisma.chatMessage.create({
@@ -117,19 +360,24 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     const reply = String(
       result.finalResponse || "I'm here with you. Breathe. How can I help?"
     );
+
+    // Additional validation for empty response
+    const validReply =
+      reply.trim() || "I'm here to help. How are you feeling? 💙";
+
     console.log(
-      `✅ Agent processing complete. Response length: ${reply.length} chars`
+      `✅ Agent processing complete. Response length: ${validReply.length} chars`
     );
-    console.log(`📝 Raw response content: ${reply.substring(0, 150)}...`);
+    console.log(`📝 Raw response content: ${validReply.substring(0, 150)}...`);
 
     // Split response into multiple messages if it contains separator
-    let responses = reply
+    let responses = validReply
       .split("\n\n---\n\n")
       .filter((r) => r && r.trim().length > 0);
 
     // If no separator was used, treat as single message
     if (responses.length === 0) {
-      responses = [reply.trim()];
+      responses = [validReply.trim()];
     }
 
     // Further split any messages that are still too long
@@ -166,14 +414,23 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
       }
     }
 
+    console.log(
+      `📊 TwiML object has ${finalResponses.length} message(s) prepared`
+    );
+    console.log(`🔍 TwiML object type:`, typeof twiml);
+
     // Save the full agent response to database
     await prisma.chatMessage.create({
-      data: { userId: user.id, sender: "AGENT", content: reply },
+      data: { userId: user.id, sender: "AGENT", content: validReply },
     });
     console.log(`💾 Agent response saved to database`);
 
-    console.log(`� Sending complete WhatsApp response`);
-    return res.type("text/xml").send(twiml.toString());
+    console.log(`📱 Sending complete WhatsApp response`);
+    const twimlString = twiml.toString();
+    console.log(`📋 TwiML Response:`);
+    console.log(twimlString);
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(twimlString);
   } catch (e: any) {
     console.error(
       `❌ Error processing message for user ${user.id}:`,
@@ -183,8 +440,252 @@ router.post("/api/whatsapp/webhook", async (req, res) => {
     twiml.message(
       "Sorry — I hit a snag analyzing that. Please try again shortly."
     );
-    return res.type("text/xml").send(twiml.toString());
+    console.log(`📱 Sending error response via WhatsApp`);
+    const errorTwimlString = twiml.toString();
+    console.log(`📋 Error TwiML Response:`);
+    console.log(errorTwimlString);
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    return res.send(errorTwimlString);
   }
 });
+
+// Helper function to process transcribed voice messages
+async function processTranscribedMessage(
+  user: any,
+  messageContent: string,
+  from: string
+): Promise<void> {
+  // Check for special commands before processing with AI agent
+  const lowerBody = messageContent.toLowerCase().trim();
+
+  // Handle help command
+  if (
+    lowerBody === "help" ||
+    lowerBody === "commands" ||
+    lowerBody === "menu"
+  ) {
+    console.log(`ℹ️ Help command detected from transcribed voice: ${from}`);
+    await sendWhatsAppNotification(
+      from,
+      `🤖 *Rac'fella Commands*\n\n💰 *Fetch My Assets* - Show your portfolio\n🎯 *Show Active Positions* - Display futures positions\n🔄 *Change API Key* - Update exchange credentials\n🔗 *Change Wallets* - Manage wallet addresses\n💬 *Help* - Show this menu\n\n💡 You can also chat naturally about trading and emotions!`
+    );
+    return;
+  }
+
+  // Handle "show positions" or "active positions" command
+  if (
+    (lowerBody.includes("show") && lowerBody.includes("position")) ||
+    lowerBody.includes("active position") ||
+    lowerBody.includes("my position") ||
+    lowerBody.includes("futures") ||
+    lowerBody === "positions"
+  ) {
+    console.log(
+      `🎯 Positions command detected from transcribed voice: ${from}`
+    );
+    await sendWhatsAppNotification(
+      from,
+      "🎯 Fetching your active positions..."
+    );
+
+    // Process positions in background
+    try {
+      const { fetchActivePositions } = await import(
+        "../services/multiExchangeService.js"
+      );
+      const { formatPositionsTable } = await import("../agent/mainAgent.js");
+      const positions = await fetchActivePositions(user.id);
+
+      const positionsTable = formatPositionsTable(positions);
+
+      await sendWhatsAppNotification(from, positionsTable);
+    } catch (error: any) {
+      console.error("Error fetching positions:", error);
+      await sendWhatsAppNotification(
+        from,
+        "❌ Sorry, I couldn't fetch your positions. Please make sure your exchange API keys are configured correctly."
+      );
+    }
+    return;
+  }
+
+  // Handle "change api key" or "change api keys" command
+  if (lowerBody.includes("change api") || lowerBody.includes("update api")) {
+    console.log(
+      `🔄 API key change command detected from transcribed voice: ${from}`
+    );
+    try {
+      const response = await fetch(`${config.appBaseUrl}/api/change-api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsappNumber: from }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          url: string;
+          message: string;
+        };
+        await sendWhatsAppNotification(
+          from,
+          `🔄 Update Your API Keys\n\nClick the link below to securely update your Binance API credentials (valid for 5 minutes):\n\n${data.url}\n\n⚡ This will replace your current API keys with new ones.`
+        );
+      } else {
+        await sendWhatsAppNotification(
+          from,
+          "❌ Sorry, I couldn't generate an API key update link. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error("Error generating API key change link:", error);
+      await sendWhatsAppNotification(
+        from,
+        "❌ There was an error processing your request. Please try again."
+      );
+    }
+    return;
+  }
+
+  // Handle "change wallets" or "manage wallets" command
+  if (
+    lowerBody.includes("change wallet") ||
+    lowerBody.includes("manage wallet") ||
+    lowerBody.includes("update wallet")
+  ) {
+    console.log(
+      `🔄 Wallet change command detected from transcribed voice: ${from}`
+    );
+    try {
+      const response = await fetch(`${config.appBaseUrl}/api/change-wallets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsappNumber: from }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          url: string;
+          message: string;
+        };
+        await sendWhatsAppNotification(
+          from,
+          `🔄 Manage Your Wallets\n\nClick the link below to update your crypto wallet addresses (valid for 5 minutes):\n\n${data.url}\n\n💡 You can add, remove, or replace your current wallet addresses.`
+        );
+      } else {
+        await sendWhatsAppNotification(
+          from,
+          "❌ Sorry, I couldn't generate a wallet management link. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error("Error generating wallet change link:", error);
+      await sendWhatsAppNotification(
+        from,
+        "❌ There was an error processing your request. Please try again."
+      );
+    }
+    return;
+  }
+
+  // Save incoming message
+  await prisma.chatMessage.create({
+    data: { userId: user.id, sender: "USER", content: messageContent },
+  });
+  console.log(`💾 Transcribed voice message saved to database`);
+
+  try {
+    console.log(
+      `🤖 Starting AI agent processing for transcribed voice message from user: ${user.id}`
+    );
+    const result = await mainAgent.invoke({
+      userId: user.id,
+      inputMessage: messageContent,
+      chatHistory: [],
+      portfolioData: null,
+      psychologicalAnalysis: "",
+      relevantKnowledge: "",
+      finalResponse: "",
+      isPortfolioRequest: false,
+      isEmotionalMessage: false,
+    });
+
+    const reply = String(
+      result.finalResponse || "I'm here with you. Breathe. How can I help?"
+    );
+
+    // Additional validation for empty response
+    const validReply =
+      reply.trim() || "I'm here to help. How are you feeling? 💙";
+
+    console.log(
+      `✅ Agent processing complete for voice message. Response length: ${validReply.length} chars`
+    );
+    console.log(`📝 Raw response content: ${validReply.substring(0, 150)}...`);
+
+    // Split response into multiple messages if it contains separator
+    let responses = validReply
+      .split("\n\n---\n\n")
+      .filter((r) => r && r.trim().length > 0);
+
+    // If no separator was used, treat as single message
+    if (responses.length === 0) {
+      responses = [validReply.trim()];
+    }
+
+    // Further split any messages that are still too long
+    const finalResponses: string[] = [];
+    for (const response of responses) {
+      const splitParts = splitLongMessage(response.trim(), 1200);
+      finalResponses.push(...splitParts);
+    }
+
+    console.log(
+      `📤 Final voice message response split: ${finalResponses.length} part(s)`
+    );
+
+    // Ensure we have at least one response
+    if (finalResponses.length === 0) {
+      console.log(
+        `⚠️ No valid responses after processing voice message, using fallback`
+      );
+      finalResponses.push("I'm here to help. How are you feeling? 💙");
+    }
+
+    // Send each response via WhatsApp notification
+    for (let i = 0; i < finalResponses.length; i++) {
+      const message = finalResponses[i].trim();
+      if (message && message.length > 0) {
+        // Final safety check - hard limit at 1500 chars
+        const safeMessage =
+          message.length > 1500
+            ? message.substring(0, 1480) + "... (cont'd)"
+            : message;
+
+        await sendWhatsAppNotification(from, safeMessage);
+        console.log(
+          `📤 Voice response ${i + 1}/${finalResponses.length} sent (${
+            safeMessage.length
+          } chars): ${safeMessage.substring(0, 80)}...`
+        );
+      }
+    }
+
+    // Save the full agent response to database
+    await prisma.chatMessage.create({
+      data: { userId: user.id, sender: "AGENT", content: validReply },
+    });
+    console.log(`💾 Agent response for voice message saved to database`);
+  } catch (e: any) {
+    console.error(
+      `❌ Error processing transcribed voice message for user ${user.id}:`,
+      e.message
+    );
+    console.error(`🔍 Stack trace:`, e.stack);
+    await sendWhatsAppNotification(
+      from,
+      "Sorry — I hit a snag analyzing that voice message. Please try again shortly."
+    );
+  }
+}
 
 export default router;

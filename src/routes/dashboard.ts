@@ -10,7 +10,7 @@ router.get("/", (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psy-Trader Dashboard</title>
+    <title>Rac'fella Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -180,7 +180,7 @@ router.get("/", (req, res) => {
 <body>
     <div class="dashboard-container">
         <div class="header">
-            <h1>🤖 Psy-Trader Dashboard</h1>
+            <h1>🤖 Rac'fella Dashboard</h1>
             <p>AI-Powered Trading Agent Management System</p>
         </div>
         
@@ -226,7 +226,7 @@ router.get("/", (req, res) => {
         </div>
         
         <div class="footer">
-            <p>© 2025 Psy-Trader - AI-Powered Trading Intelligence System</p>
+            <p>© 2025 Rac'fella - AI-Powered Trading Intelligence System</p>
             <p>Built with LangGraph, Node.js, and PostgreSQL</p>
         </div>
     </div>

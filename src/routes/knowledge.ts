@@ -45,7 +45,7 @@ router.get("/knowledge", async (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psy-Trader - Knowledge Base Manager</title>
+    <title>Rac'fella - Knowledge Base Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .article-card { transition: all 0.3s ease; }

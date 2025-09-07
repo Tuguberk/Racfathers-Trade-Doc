@@ -26,6 +26,10 @@ export const config = {
   redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
   openRouterKey: process.env.OPENROUTER_API_KEY || "",
   openaiKey: process.env.OPENAI_API_KEY || "",
+  moralisApiKey: process.env.MORALIS_API_KEY || "",
+  elevenlabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY || "",
+  },
   models: {
     advanced: process.env.ADVANCED_MODEL || "anthropic/claude-3-opus-20240229",
     utility: process.env.UTILITY_MODEL || "google/gemini-1.5-flash",
@@ -42,3 +46,9 @@ export const config = {
 export function generateToken(): string {
   return crypto.randomUUID();
 }
+
+export const JOURNAL_FEATURE_ENABLED =
+  process.env.JOURNAL_FEATURE_ENABLED !== "false";
+export const JOURNAL_REMINDERS_ENABLED =
+  process.env.JOURNAL_REMINDERS_ENABLED === "true";
+export const ADMIN_WHATSAPP_NUMBER = process.env.ADMIN_WHATSAPP_NUMBER || "";

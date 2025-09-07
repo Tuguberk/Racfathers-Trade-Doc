@@ -8,7 +8,7 @@ const router = Router();
 router.get("/studio/graph", async (req, res) => {
   try {
     const graphInfo = {
-      name: "Psy-Trader AI Agent",
+      name: "Rac'fella AI Agent",
       description: "5-node psychological trading advisor",
       nodes: [
         {
@@ -21,7 +21,7 @@ router.get("/studio/graph", async (req, res) => {
           id: "fetch_and_analyze_portfolio",
           name: "Portfolio Analysis",
           type: "external_api",
-          description: "Gets Binance portfolio via CCXT",
+          description: "Gets exchange portfolio via CCXT",
         },
         {
           id: "analyze_message_intent",
@@ -160,7 +160,7 @@ router.get("/studio/state", async (req, res) => {
     res.json({
       sample_state: sampleState,
       state_description:
-        "This is the AgentState structure used by the Psy-Trader agent",
+        "This is the AgentState structure used by the Rac'fella agent",
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

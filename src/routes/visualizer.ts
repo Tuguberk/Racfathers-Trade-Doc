@@ -12,7 +12,7 @@ router.get("/graph-visualizer", (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psy-Trader - Agent Graph Visualizer</title>
+    <title>Rac'fella - Agent Graph Visualizer</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -29,7 +29,7 @@ router.get("/graph-visualizer", (req, res) => {
     <div class="container mx-auto p-4">
         <!-- Header -->
         <div class="mb-6">
-            <h1 class="text-3xl font-bold text-gray-900 mb-2">🧠 Psy-Trader Agent Graph</h1>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">🧠 Rac'fella Agent Graph</h1>
             <p class="text-gray-600">Real-time visualization of your AI agent execution</p>
         </div>
 

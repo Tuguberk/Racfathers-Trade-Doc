@@ -13,11 +13,60 @@ generator client {
 model User {
   id                 String              @id @default(cuid())
   whatsappNumber     String              @unique
-  encryptedApiKey    String
-  encryptedApiSecret String
   createdAt          DateTime            @default(now())
   messages           ChatMessage[]
   portfolioSnapshots PortfolioSnapshot[]
+  walletAddresses    WalletAddress[]
+  exchangeKeys       ExchangeApiKey[]
+  positions          Position[]
+}
+
+model ExchangeApiKey {
+  id                  String   @id @default(cuid())
+  userId              String
+  exchange            String // "binance", "binance-futures", "bybit", "kraken"
+  encryptedApiKey     String
+  encryptedApiSecret  String
+  encryptedPassphrase String? // For exchanges that require passphrase
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exchange]) // One API key per exchange per user
+}
+
+model WalletAddress {
+  id        String   @id @default(cuid())
+  address   String
+  label     String? // Optional label for the wallet
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address]) // Prevent duplicate addresses for same user
+}
+
+model Position {
+  id            String   @id @default(cuid())
+  userId        String
+  exchange      String // "binance-futures", "bybit", etc.
+  symbol        String // "BTC/USDT:USDT", "ETH/USDT:USDT"
+  side          String // "long", "short"
+  size          Float // Position size
+  notional      Float? // Notional value
+  entryPrice    Float? // Entry price
+  markPrice     Float? // Current mark price
+  percentage    Float? // P&L percentage
+  unrealizedPnl Float? // Unrealized P&L in USDT
+  realizedPnl   Float? // Realized P&L in USDT
+  marginType    String? // "isolated", "cross"
+  leverage      Float? // Leverage multiplier
+  timestamp     DateTime @default(now())
+  isActive      Boolean  @default(true)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exchange, symbol]) // One position per symbol per exchange per user
 }
 
 model ChatMessage {
@@ -56,4 +105,56 @@ model AgentPrompt {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+model JournalEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  market    String?
+  emotions  String?
+  mistakes  String?
+  lessons   String?
+  tags      String[] @db.Text
+  trades    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+}
+
+model JournalGoal {
+  id        String           @id @default(cuid())
+  userId    String
+  text      String
+  target    String?
+  due       DateTime?
+  status    GoalStatus       @default(ACTIVE)
+  progress  Int              @default(0)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  checkIns  JournalCheckIn[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model JournalCheckIn {
+  id        String      @id @default(cuid())
+  userId    String
+  goalId    String
+  note      String?
+  score     Int?
+  createdAt DateTime    @default(now())
+  goal      JournalGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([goalId])
 }

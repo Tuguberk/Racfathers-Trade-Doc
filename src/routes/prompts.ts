@@ -16,7 +16,7 @@ router.get("/prompts", async (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psy-Trader - Agent Prompts Manager</title>
+    <title>Rac'fella - Agent Prompts Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .prompt-card { transition: all 0.3s ease; }
@@ -29,7 +29,7 @@ router.get("/prompts", async (req, res) => {
     <div class="container mx-auto px-4 py-8">
         <!-- Header -->
         <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900 mb-2">🧠 Psy-Trader Agent Prompts</h1>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">🧠 Rac'fella Agent Prompts</h1>
             <p class="text-gray-600">Manage AI agent prompts in real-time while the system is running</p>
         </div>
 
