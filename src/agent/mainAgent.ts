@@ -204,6 +204,31 @@ function isFinancialAdviceRequest(message: string): boolean {
   return adviceKeywords.some((kw) => lower.includes(kw));
 }
 
+// Helper function to detect help / usage info requests
+function isHelpRequest(message: string): boolean {
+  const helpKeywords = [
+    "help",
+    "how do i",
+    "how to use",
+    "how can i",
+    "what can you do",
+    "what can u do",
+    "what can i do",
+    "commands",
+    "command list",
+    "features",
+    "options",
+    "usage",
+    "instructions",
+    "guide",
+    "menu",
+    "capabilities",
+    "explain yourself",
+  ];
+  const lower = message.toLowerCase();
+  return helpKeywords.some((kw) => lower.includes(kw));
+}
+
 // Helper function to detect if user wants fresh portfolio data
 function shouldFetchFreshPortfolio(message: string): boolean {
   const freshDataKeywords = [
@@ -666,6 +691,7 @@ Classify the user's intent as one of these categories:
 3. "portfolio_position" - User asks about their portfolio, positions, balances, holdings, or wants to check their assets
 4. "financial_advice" - User asks for trading signals, buy/sell recommendations, or specific investment advice
 5. "psychology" - User discusses emotions, feelings, stress, or needs emotional support
+6. "help" - User asks what you can do, wants a command list, features, usage instructions, or how to use the assistant
 
 Respond with a JSON object containing:
 {
@@ -814,6 +840,9 @@ async function routeByIntent(
     case "crisis":
       return { intent: "crisis", isCrisisMessage: true };
 
+    case "help":
+      return { intent: "help", isHelpRequest: true };
+
     case "journal":
       if (!JOURNAL_FEATURE_ENABLED) {
         console.log(`📒 Journal feature disabled, falling back to psychology`);
@@ -878,6 +907,41 @@ async function routeByIntent(
   }
 }
 
+// Help / usage handler
+async function handle_help(state: AgentState): Promise<Partial<AgentState>> {
+  const helpMessage = `🛟 *Assistant Help & Commands*
+
+I can support you in several areas. Try messages like:
+
+📒 Journal:
+  • "I want to reflect on today's trades"
+  • "Set a goal to improve risk management"
+
+💰 Portfolio & Positions:
+  • "Show my portfolio"
+  • "List my open positions"
+  • "Refresh my holdings"
+
+🧠 Psychology & Emotions:
+  • "I'm feeling anxious after that loss"
+  • "Help me stay disciplined"
+
+🎯 Goals:
+  • "Set a goal: reduce overtrading"
+  • "Add a goal to journal daily"
+
+📊 Commands / Keywords:
+  • portfolio / positions / refresh
+  • journal / goal / reflect
+  • feelings like anxious, stressed, FOMO
+
+❓ You can ask: "What can you do?" anytime.
+
+Let me know what you'd like to do next.`;
+
+  return { finalResponse: helpMessage };
+}
+
 // Fallback keyword-based routing (original logic)
 async function fallbackKeywordRouting(
   state: AgentState
@@ -924,6 +988,11 @@ async function fallbackKeywordRouting(
       isPositionRequest: posReq,
       isPortfolioRequest: portReq || !posReq,
     };
+  }
+
+  // Help / Usage
+  if (isHelpRequest(msg)) {
+    return { intent: "help", isHelpRequest: true };
   }
 
   // Financial advice
@@ -1101,6 +1170,7 @@ function routeByAnalyzedIntent(state: AgentState): string {
     "portfolio_position",
     "financial_advice",
     "psychology",
+    "help",
   ];
 
   if (!intent || !validIntents.includes(intent)) {
@@ -1156,6 +1226,7 @@ const graph = new StateGraph<AgentState>({
   .addNode("analyze_and_route", analyze_and_route)
   .addNode("handle_crisis", handle_crisis)
   .addNode("handle_journal", handle_journal)
+  .addNode("handle_help", handle_help)
   .addNode("check_cached_portfolio", check_cached_portfolio)
   .addNode("fetch_and_analyze_portfolio", fetch_and_analyze_portfolio)
   .addNode("generate_portfolio_response", generate_portfolio_response)
@@ -1170,6 +1241,7 @@ const graph = new StateGraph<AgentState>({
     {
       crisis: "handle_crisis",
       journal: "handle_journal",
+      help: "handle_help",
       portfolio_position: "check_cached_portfolio",
       financial_advice: "search_knowledge_base",
       psychology: "search_knowledge_base",
@@ -1178,6 +1250,7 @@ const graph = new StateGraph<AgentState>({
   )
   .addEdge("handle_crisis", "__end__")
   .addEdge("handle_journal", "__end__")
+  .addEdge("handle_help", "__end__")
   .addConditionalEdges("check_cached_portfolio", portfolioDecision, {
     fetch: "fetch_and_analyze_portfolio",
     generate: "generate_portfolio_response",
@@ -1192,7 +1265,7 @@ const graph = new StateGraph<AgentState>({
   .addEdge("handle_psychology", "__end__");
 
 console.log(
-  `🚀 AI Agent graph compiled with 10 nodes (crisis | journal | portfolio_position | financial_advice | psychology)`
+  `🚀 AI Agent graph compiled with 11 nodes (crisis | journal | portfolio_position | financial_advice | psychology | help)`
 );
 
 // Compile the graph

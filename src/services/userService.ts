@@ -32,13 +32,14 @@ export function isValidWalletAddress(address: string): boolean {
 }
 
 /**
- * Get all wallet addresses for a user by WhatsApp number
+ * Get all wallet addresses for a user by internal userId
+ * (Changed from whatsappNumber to userId)
  */
 export async function getUserWalletAddresses(
-  whatsappNumber: string
+  userId: string
 ): Promise<WalletAddress[]> {
   const user = await prisma.user.findUnique({
-    where: { whatsappNumber },
+    where: { id: userId },
     include: {
       walletAddresses: {
         orderBy: { createdAt: "asc" },
@@ -47,6 +48,21 @@ export async function getUserWalletAddresses(
   });
 
   return user?.walletAddresses || [];
+}
+
+/**
+ * Backward compatibility: fetch wallet addresses by whatsappNumber
+ * (Temporary wrapper – migrate callers to use userId directly.)
+ */
+export async function getUserWalletAddressesByWhatsappNumber(
+  whatsappNumber: string
+): Promise<WalletAddress[]> {
+  const user = await prisma.user.findUnique({
+    where: { whatsappNumber },
+    select: { id: true },
+  });
+  if (!user) return [];
+  return getUserWalletAddresses(user.id);
 }
 
 /**

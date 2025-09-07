@@ -281,38 +281,12 @@ ${schemaExample}`;
 
   // For other actions, use simple parsing or LLM as needed
   if (journalAction === "GET_ENTRIES") {
-    console.log("🔍 Parsing GET_ENTRIES filters");
-
-    const filterExtractionPrompt = `Extract date range and tag filters from this message:
-
-Message: """${inputMessage}"""
-
-Return JSON format:
-{
-  "from": "YYYY-MM-DD or null",
-  "to": "YYYY-MM-DD or null", 
-  "tag": "string or null"
-}`;
-
-    try {
-      const llmResponse = await getUtilityResponse(filterExtractionPrompt);
-      const cleanResponse = llmResponse.replace(
-        /^\s*```(?:json)?\s*|\s*```\s*$/g,
-        ""
-      );
-      const filterData = JSON.parse(cleanResponse);
-
-      return {
-        filters: {
-          from: filterData.from,
-          to: filterData.to,
-          tag: filterData.tag,
-        },
-      };
-    } catch (error) {
-      console.error("❌ Error parsing filters:", error);
-      return { filters: {} };
-    }
+    console.log(
+      "🔍 GET_ENTRIES requested - skipping filter parsing, returning URL only"
+    );
+    return {
+      finalResponse: "🔗 Open journal: https://racfella.racfathers.io/journal",
+    };
   }
 
   return state;
@@ -347,14 +321,12 @@ async function journal_add_entry(
       },
     });
 
-    let response = "✅ Journal entry added!\n";
-    if (entryDraft.emotions)
-      response += `😊 Emotions: ${entryDraft.emotions}\n`;
-    if (entryDraft.mistakes)
-      response += `❌ Mistakes: ${entryDraft.mistakes}\n`;
-    if (entryDraft.lessons) response += `💡 Lessons: ${entryDraft.lessons}\n`;
-    if (entryDraft.tags && entryDraft.tags.length > 0)
-      response += `🏷️ Tags: ${entryDraft.tags.join(", ")}\n`;
+    let response = "";
+
+    // Add link for user to view the saved entry
+    response += `🔗 https://racfella.racfathers.io/record?id=${entry.id}\n`;
+    // Prompt user about on-chain save option (placeholder informational message)
+    response += `⛓️ Save on-chain: You can persist this entry on-chain.\n`;
 
     return { finalResponse: response };
   } catch (error) {
@@ -370,60 +342,10 @@ async function journal_get_entries(
   state: JournalState
 ): Promise<Partial<JournalState>> {
   console.log("📒 Retrieving journal entries");
-
-  const { userId, filters } = state;
-
-  try {
-    let whereClause: any = { userId };
-
-    if (filters?.from && filters?.to) {
-      whereClause.date = {
-        gte: new Date(filters.from),
-        lte: new Date(filters.to),
-      };
-    } else if (filters?.from) {
-      whereClause.date = { gte: new Date(filters.from) };
-    } else if (filters?.to) {
-      whereClause.date = { lte: new Date(filters.to) };
-    }
-
-    if (filters?.tag) {
-      whereClause.tags = { has: filters.tag };
-    }
-
-    const entries = await prisma.journalEntry.findMany({
-      where: whereClause,
-      orderBy: { date: "desc" },
-      take: 10,
-    });
-
-    if (entries.length === 0) {
-      return {
-        finalResponse: "📒 No journal entries found for your criteria.",
-      };
-    }
-
-    let response = `📒 Found ${entries.length} journal entries:\n\n`;
-
-    entries.forEach((entry, index) => {
-      const date = entry.date.toISOString().split("T")[0];
-      response += `**${index + 1}. ${date}**\n`;
-      if (entry.market) response += `🏪 Market: ${entry.market}\n`;
-      if (entry.emotions) response += `😊 Emotions: ${entry.emotions}\n`;
-      if (entry.mistakes) response += `❌ Mistakes: ${entry.mistakes}\n`;
-      if (entry.lessons) response += `💡 Lessons: ${entry.lessons}\n`;
-      if (entry.tags.length > 0)
-        response += `🏷️ Tags: ${entry.tags.join(", ")}\n`;
-      response += `\n`;
-    });
-
-    return { entries, finalResponse: response };
-  } catch (error) {
-    console.error("Error retrieving journal entries:", error);
-    return {
-      finalResponse: "❌ Failed to retrieve journal entries. Please try again.",
-    };
-  }
+  // Simplified: just provide the journal URL
+  return {
+    finalResponse: " Open journal: https://racfella.racfathers.io/journal",
+  };
 }
 
 // Set a new goal

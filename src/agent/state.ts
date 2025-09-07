@@ -20,4 +20,6 @@ export interface AgentState {
   isJournalRequest?: boolean;
   journalAction?: string;
   journalNLP?: any;
+  // Help / usage
+  isHelpRequest?: boolean;
 }
