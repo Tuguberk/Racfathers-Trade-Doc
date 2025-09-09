@@ -1,9 +1,10 @@
 import express from "express";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Dashboard/Homepage route
-router.get("/", (req, res) => {
+// Dashboard/Homepage route - protected with password auth
+router.get("/", requireAuth, (req, res) => {
   const dashboardHTML = `
 <!DOCTYPE html>
 <html lang="tr">
@@ -182,6 +183,9 @@ router.get("/", (req, res) => {
         <div class="header">
             <h1>🤖 Rac'fella Dashboard</h1>
             <p>AI-Powered Trading Agent Management System</p>
+            <div style="margin-top: 10px; padding: 8px 16px; background: #e8f5e8; border-radius: 8px; font-size: 14px; color: #2d5a2d;">
+                🔐 <strong>Authenticated Access</strong> - You are logged in to the admin panel
+            </div>
         </div>
         
         <div class="cards-grid">
@@ -264,6 +268,11 @@ router.get("/", (req, res) => {
 </html>`;
 
   res.send(dashboardHTML);
+});
+
+// Handle POST requests for authentication (redirect to GET after auth)
+router.post("/", requireAuth, (req, res) => {
+  res.redirect("/");
 });
 
 export default router;

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db/prisma.js";
 import { getEmbedding } from "../services/llmService.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -29,8 +30,8 @@ async function getKnowledgeStats() {
   };
 }
 
-// Knowledge management web interface
-router.get("/knowledge", async (req, res) => {
+// Knowledge management web interface - protected with password auth
+router.get("/knowledge", requireAuth, async (req, res) => {
   try {
     const articles = await prisma.knowledgeArticle.findMany({
       orderBy: { id: "desc" },
@@ -328,8 +329,8 @@ router.get("/knowledge", async (req, res) => {
   }
 });
 
-// API: Add new article with embedding
-router.post("/api/knowledge", async (req, res) => {
+// API: Add new article with embedding - protected with password auth
+router.post("/api/knowledge", requireAuth, async (req, res) => {
   try {
     const { content, author, source, tags } = req.body;
 
@@ -378,8 +379,8 @@ router.post("/api/knowledge", async (req, res) => {
   }
 });
 
-// API: Search articles by embedding similarity
-router.post("/api/knowledge/search", async (req, res) => {
+// API: Search articles by embedding similarity - protected with password auth
+router.post("/api/knowledge/search", requireAuth, async (req, res) => {
   try {
     const { query, limit = 5 } = req.body;
 
@@ -441,6 +442,11 @@ router.get("/api/knowledge/stats", async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Handle POST requests for authentication (redirect to GET after auth)
+router.post("/knowledge", requireAuth, (req, res) => {
+  res.redirect("/knowledge");
 });
 
 export default router;

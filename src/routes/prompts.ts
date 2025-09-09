@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { prisma } from "../db/prisma.js";
 import { PromptService } from "../services/promptService.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
-// Prompt management web interface
-router.get("/prompts", async (req, res) => {
+// Prompt management web interface - protected with password auth
+router.get("/prompts", requireAuth, async (req, res) => {
   try {
     const prompts = await PromptService.getAllPrompts();
     const categories = [...new Set(prompts.map((p) => p.category))];
@@ -188,7 +189,7 @@ router.get("/api/prompts", async (req, res) => {
   }
 });
 
-router.post("/api/prompts", async (req, res) => {
+router.post("/api/prompts", requireAuth, async (req, res) => {
   try {
     const prompt = await PromptService.createPrompt(req.body);
     res.json(prompt);
@@ -197,7 +198,7 @@ router.post("/api/prompts", async (req, res) => {
   }
 });
 
-router.put("/api/prompts/:id", async (req, res) => {
+router.put("/api/prompts/:id", requireAuth, async (req, res) => {
   try {
     const prompt = await PromptService.updatePrompt(req.params.id, req.body);
     res.json(prompt);
@@ -206,13 +207,18 @@ router.put("/api/prompts/:id", async (req, res) => {
   }
 });
 
-router.post("/api/prompts/:id/toggle", async (req, res) => {
+router.post("/api/prompts/:id/toggle", requireAuth, async (req, res) => {
   try {
     const prompt = await PromptService.togglePrompt(req.params.id);
     res.json(prompt);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Handle POST requests for authentication (redirect to GET after auth)
+router.post("/prompts", requireAuth, (req, res) => {
+  res.redirect("/prompts");
 });
 
 export default router;

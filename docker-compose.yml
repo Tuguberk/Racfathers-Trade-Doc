@@ -65,6 +65,7 @@ services:
       TWILIO_WHATSAPP_FROM: ${TWILIO_WHATSAPP_FROM:?Set TWILIO_WHATSAPP_FROM in your environment}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       APP_BASE_URL: ${APP_BASE_URL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       PORT: 3000
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://racfella-agent.racfathers.io}
     labels:

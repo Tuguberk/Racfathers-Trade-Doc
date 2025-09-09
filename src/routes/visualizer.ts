@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { mainAgent } from "../agent/mainAgent.js";
 import { AgentState } from "../agent/state.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
-// Web-based Graph Visualizer
-router.get("/graph-visualizer", (req, res) => {
+// Web-based Graph Visualizer - protected with password auth
+router.get("/graph-visualizer", requireAuth, (req, res) => {
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -319,6 +320,11 @@ router.get("/graph-visualizer", (req, res) => {
 </html>`;
 
   res.send(html);
+});
+
+// Handle POST requests for authentication (redirect to GET after auth)
+router.post("/graph-visualizer", requireAuth, (req, res) => {
+  res.redirect("/graph-visualizer");
 });
 
 export default router;

@@ -315,7 +315,31 @@ MORALIS_API_KEY=your_moralis_key
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
 TWILIO_WHATSAPP_FROM=whatsapp:+your_number
+
+# Set admin password for web UI access (change in production!)
+ADMIN_PASSWORD=your_secure_password_here
 ```
+
+### 🔐 Web Interface Authentication
+
+The web-based admin interfaces are protected with basic password authentication:
+
+- **Dashboard**: `http://localhost:3000/`
+- **Prompts Manager**: `http://localhost:3000/prompts`
+- **Knowledge Base**: `http://localhost:3000/knowledge`
+- **Agent Graph Visualizer**: `http://localhost:3000/graph-visualizer`
+
+**Authentication Methods:**
+
+1. **Form Login**: Enter password in the login form
+2. **JavaScript Prompt**: Click "JavaScript Prompt" button for browser prompt
+3. **URL Parameter**: Add `?password=YOUR_PASSWORD` to any protected URL for quick access
+
+**Security Features:**
+
+- Session-based authentication (stays logged in during browser session)
+- Environment variable password configuration
+- No repeated password prompts once authenticated
 
 ### Database & Services Setup
 
