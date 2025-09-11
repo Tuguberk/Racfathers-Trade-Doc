@@ -79,33 +79,19 @@ services:
       - traefik.docker.network=proxy
 
       # HTTP Router (HTTP -> HTTPS redirect middleware ile)
-      - traefik.http.routers.racfella-agent-http.rule=Host(`racfella-agent.racfathers.io`)
-      - traefik.http.routers.racfella-agent-http.entrypoints=web
-      - traefik.http.routers.racfella-agent-http.middlewares=https-redirect
-
-      # HTTPS Router
       - traefik.http.routers.racfella-agent.rule=Host(`racfella-agent.racfathers.io`)
-      - traefik.http.routers.racfella-agent.entrypoints=websecure
-      - traefik.http.routers.racfella-agent.tls=true
-      - traefik.http.routers.racfella-agent.tls.certresolver=le
+      - traefik.http.routers.racfella-agent.priority=100
+      - traefik.http.routers.racfella-agent-http.priority=100
+      - traefik.http.routers.racfella-agent-http.entrypoints=websecure
+      - traefik.http.routers.racfella-agent-http.tls=true
+      - traefik.http.routers.racfella-agent-http.tls.certresolver=le
 
       # Service (internal container port)
       - traefik.http.services.racfella-agent.loadbalancer.server.port=3000
 
-      # Middlewares: compress + CORS (camelCase anahtarlar)
+      # Middlewares: compress + CORS
       - traefik.http.middlewares.racfella-agent-compress.compress=true
-
-      # CORS – * yerine mümkünse domain listenizi verin
-      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS
-      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlAllowHeaders=Accept,Authorization,Content-Type,Origin,User-Agent,Referer
-      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlAllowOriginList=racfella-agent.racfathers.io,racfella.racfathers.io
-      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlMaxAge=100
-      - traefik.http.middlewares.racfella-agent-cors.headers.addVaryHeader=true
-
-      - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
-      - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
-
-      - traefik.http.routers.racfella-agent.middlewares=racfella-agent-compress,racfella-agent-cors
+      - traefik.http.routers.racfella-agent.middlewares=racfella-agent-compress
     depends_on:
       db:
         condition: service_healthy
