@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -25,7 +23,13 @@ services:
     image: redis:7-alpine
     container_name: racfella-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
+    # Parola var ise --requirepass ekle (Alpine sh ile koşullu)
+    command: >
+      sh -lc 'exec redis-server --appendonly yes
+      ${REDIS_PASSWORD:+ --requirepass ${REDIS_PASSWORD}}'
+    environment:
+      # opsiyonel: REDIS_PASSWORD set edilirse üstteki komut requirepass ekler
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
     expose:
@@ -51,8 +55,11 @@ services:
       - "3000"
     environment:
       NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/racfella
-      REDIS_URL: redis://${REDIS_PASSWORD:+:$REDIS_PASSWORD@}redis:6379
+      # Şifresiz varsayılan. Parola kullanacaksanız .env'de REDIS_URL=redis://:PAROLA@redis:6379 olarak override edin.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in your environment}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       MORALIS_API_KEY: ${MORALIS_API_KEY:-}
@@ -64,32 +71,40 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:?Set TWILIO_AUTH_TOKEN in your environment}
       TWILIO_WHATSAPP_FROM: ${TWILIO_WHATSAPP_FROM:?Set TWILIO_WHATSAPP_FROM in your environment}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
-      APP_BASE_URL: ${APP_BASE_URL}
+      APP_BASE_URL: ${APP_BASE_URL:-https://racfella-agent.racfathers.io}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      PORT: 3000
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://racfella-agent.racfathers.io}
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      # HTTP Router (redirects to HTTPS)
+
+      # HTTP Router (HTTP -> HTTPS redirect middleware ile)
       - traefik.http.routers.racfella-agent-http.rule=Host(`racfella-agent.racfathers.io`)
       - traefik.http.routers.racfella-agent-http.entrypoints=web
       - traefik.http.routers.racfella-agent-http.middlewares=https-redirect
+
       # HTTPS Router
       - traefik.http.routers.racfella-agent.rule=Host(`racfella-agent.racfathers.io`)
       - traefik.http.routers.racfella-agent.entrypoints=websecure
       - traefik.http.routers.racfella-agent.tls=true
       - traefik.http.routers.racfella-agent.tls.certresolver=le
+
       # Service (internal container port)
       - traefik.http.services.racfella-agent.loadbalancer.server.port=3000
-      # Middlewares
+
+      # Middlewares: compress + CORS (camelCase anahtarlar)
       - traefik.http.middlewares.racfella-agent-compress.compress=true
-      - traefik.http.middlewares.racfella-agent-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS
-      - traefik.http.middlewares.racfella-agent-cors.headers.accesscontrolalloworigin=*
-      - traefik.http.middlewares.racfella-agent-cors.headers.accesscontrolmaxage=100
-      - traefik.http.middlewares.racfella-agent-cors.headers.addvaryheader=true
+
+      # CORS – * yerine mümkünse domain listenizi verin
+      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS
+      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlAllowHeaders=Accept,Authorization,Content-Type,Origin,User-Agent,Referer
+      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlAllowOriginList=racfella-agent.racfathers.io,racfella.racfathers.io
+      - traefik.http.middlewares.racfella-agent-cors.headers.accessControlMaxAge=100
+      - traefik.http.middlewares.racfella-agent-cors.headers.addVaryHeader=true
+
       - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
       - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+
       - traefik.http.routers.racfella-agent.middlewares=racfella-agent-compress,racfella-agent-cors
     depends_on:
       db:
@@ -100,7 +115,8 @@ services:
       - proxy
       - racfella-internal
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      # wget çoğu Node imajında yok; curl ile test edelim
+      test: ["CMD-SHELL", "apk add --no-cache curl >/dev/null 2>&1 || true; curl -fsS http://localhost:3000/health >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
