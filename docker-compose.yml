@@ -1,47 +1,4 @@
 services:
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: racfella-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: racfella
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    expose:
-      - "5432"
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    networks:
-      - racfella-internal
-
-  redis:
-    image: redis:7-alpine
-    container_name: racfella-redis
-    restart: unless-stopped
-    # Parola var ise --requirepass ekle (Alpine sh ile koşullu)
-    command: >
-      sh -lc 'exec redis-server --appendonly yes
-      ${REDIS_PASSWORD:+ --requirepass ${REDIS_PASSWORD}}'
-    environment:
-      # opsiyonel: REDIS_PASSWORD set edilirse üstteki komut requirepass ekler
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-    volumes:
-      - redis_data:/data
-    expose:
-      - "6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - racfella-internal
-
   app:
     build:
       context: .
@@ -49,17 +6,17 @@ services:
       args:
         - NODE_ENV=production
     image: racfella-agent:latest
-    container_name: racfella-agent
+    container_name: racfellaagent
     restart: unless-stopped
     expose:
       - "3000"
     environment:
       NODE_ENV: production
-      HOST: 0.0.0.0
-      PORT: 3000
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/racfella
-      # Şifresiz varsayılan. Parola kullanacaksanız .env'de REDIS_URL=redis://:PAROLA@redis:6379 olarak override edin.
+      DATABASE_URL: ${DATABASE_URL}
+      # point to the redis service on the same docker network
+      # if you set REDIS_PASSWORD, also set REDIS_URL below to redis://:password@redis:6379
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in your environment}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       MORALIS_API_KEY: ${MORALIS_API_KEY:-}
@@ -77,45 +34,45 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-
-      # HTTP Router (HTTP -> HTTPS redirect middleware ile)
-      - traefik.http.routers.racfella-agent.rule=Host(`racfella-agent.racfathers.io`)
-      - traefik.http.routers.racfella-agent.priority=100
-      - traefik.http.routers.racfella-agent-http.priority=100
-      - traefik.http.routers.racfella-agent-http.entrypoints=websecure
-      - traefik.http.routers.racfella-agent-http.tls=true
-      - traefik.http.routers.racfella-agent-http.tls.certresolver=le
-
+      # Router
+      - traefik.http.routers.racfellaagent.rule=Host(`racfella-agent.racfathers.io`)
+      - traefik.http.routers.racfellaagent.entrypoints=websecure
+      - traefik.http.routers.racfellaagent.tls=true
+      - traefik.http.routers.racfellaagent.tls.certresolver=le
       # Service (internal container port)
-      - traefik.http.services.racfella-agent.loadbalancer.server.port=3000
-
-      # Middlewares: compress + CORS
-      - traefik.http.middlewares.racfella-agent-compress.compress=true
-      - traefik.http.routers.racfella-agent.middlewares=racfella-agent-compress
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - traefik.http.services.racfellaagent.loadbalancer.server.port=3000
+      # Middlewares
+      - traefik.http.middlewares.racfellaagent-compress.compress=true
+      - traefik.http.routers.racfellaagent.middlewares=racfellaagent-compress
     networks:
       - proxy
-      - racfella-internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: racfella-redis
+    restart: unless-stopped
+    # If REDIS_PASSWORD is set in .env, this will add --requirepass
+    command: >
+      sh -lc 'exec redis-server --appendonly yes
+      ${REDIS_PASSWORD:+ --requirepass ${REDIS_PASSWORD}}'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
     healthcheck:
-      # wget çoğu Node imajında yok; curl ile test edelim
-      test: ["CMD-SHELL", "apk add --no-cache curl >/dev/null 2>&1 || true; curl -fsS http://localhost:3000/health >/dev/null"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - proxy
 
 volumes:
-  postgres_data:
-    driver: local
   redis_data:
-    driver: local
 
 networks:
   proxy:
     external: true
     name: proxy
-  racfella-internal:
-    driver: bridge
